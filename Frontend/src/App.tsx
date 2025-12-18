@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 interface UploadResponse {
   success: boolean
@@ -115,13 +116,22 @@ function App() {
       {/* Header */}
       <header className="bg-white shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold mb-2" style={{ color: '#9C83C9' }}>
-              Architecture Diagram Generator
-            </h1>
-            <p className="text-gray-600 text-lg">
-              Upload a SOW PDF to generate an architecture diagram
-            </p>
+          <div className="flex justify-between items-center">
+            <div className="text-center flex-1">
+              <h1 className="text-4xl font-bold mb-2" style={{ color: '#9C83C9' }}>
+                Architecture Diagram Generator
+              </h1>
+              <p className="text-gray-600 text-lg">
+                Upload a SOW PDF to generate an architecture diagram
+              </p>
+            </div>
+            <Link
+              to="/gallery"
+              className="px-6 py-3 rounded-lg font-semibold text-white transition-all duration-200 hover:shadow-lg whitespace-nowrap"
+              style={{ backgroundColor: '#9C83C9' }}
+            >
+              View Gallery →
+            </Link>
           </div>
         </div>
       </header>
