@@ -185,392 +185,472 @@ def generate_diagram_with_strands(summary_text: str, output_path: Path) -> Optio
 
         
 
-        diagram_prompt = f"""You are an expert AWS Solutions Architect creating a COMPREHENSIVE, DETAILED, enterprise-grade architecture diagram. Follow AWS official diagramming standards strictly. The diagram must be complete, detailed, and immediately usable in presentations.
+        diagram_prompt = f"""YOU MUST CREATE A COMPLETE AWS ARCHITECTURE DIAGRAM FOLLOWING AWS OFFICIAL STANDARDS!
+
+CRITICAL AWS STANDARD REQUIREMENTS:
+✓ Use OFFICIAL AWS Architecture Icons (2023+ icon set)
+✓ Use RECTANGULAR boxes with SHARP CORNERS (NO rounded/curved boxes)
+✓ Follow AWS Well-Architected Framework diagram conventions
+✓ Use AWS standard colors and styling
+✓ Professional enterprise-grade appearance matching AWS documentation
+
+✗ DO NOT use rounded/curved boxes
+✗ DO NOT use custom icon styles
+✗ DO NOT deviate from AWS standard diagram conventions
+✗ DO NOT create flowchart-style diagrams
+
+IMMEDIATE TASK: Use the AWS diagram MCP tools available to you to generate a FULL VISUAL AWS ARCHITECTURE DIAGRAM with:
+✓ Official AWS service icons (EC2, RDS, S3, Lambda, etc.) from AWS Architecture Icons
+✓ RECTANGULAR container boxes with SHARP CORNERS (AWS Cloud, Region, VPC, AZs, Subnets)
+✓ Straight connection arrows showing data flow
+✓ Professional labels matching AWS documentation style
+✓ Horizontal 16:9 layout (3840×2160 pixels)
+
+STEP 1: ANALYZE the architecture summary below and identify ALL AWS services, components, and data flows.
+STEP 2: USE the AWS diagram MCP tool to GENERATE a complete visual diagram following AWS official standards.
+STEP 3: ENSURE all boxes are RECTANGULAR with SHARP CORNERS (not rounded).
+STEP 4: SAVE the diagram as a PNG to: {absolute_output_path}
+
+You are an expert AWS Solutions Architect creating a COMPREHENSIVE, DETAILED, ENTERPRISE‑GRADE architecture diagram using OFFICIAL AWS ARCHITECTURE DIAGRAM STANDARDS. You MUST follow AWS official diagramming conventions exactly as used in AWS documentation, whitepapers, and Well-Architected Framework materials.
+
+MANDATORY AWS DIAGRAM STANDARDS:
+You MUST use the available AWS diagram generation tools to create a diagram that matches AWS official architecture diagrams:
+
+1. OFFICIAL AWS ICONS:
+   - Use ONLY official AWS Architecture Icons (latest icon set from AWS Architecture Center)
+   - Each AWS service must use its official icon (orange for compute, blue for database, green for storage, purple for network, red for security)
+   - Icon size: consistent 64×64 pixels or similar
+   - NO custom icons, NO generic shapes for services
+
+2. RECTANGULAR BOXES WITH SHARP CORNERS (CRITICAL):
+   - ALL container boxes MUST be RECTANGULAR with SHARP 90-degree CORNERS
+   - NO rounded corners, NO curved boxes, NO ellipses, NO circles for containers
+   - Box types needed:
+     * AWS Cloud: Large rectangular box, dark border (#232F3E), white fill
+     * Region: Rectangular box, dashed border, white fill
+     * VPC: Rectangular box, solid purple border (#8C4FFF), white fill
+     * Availability Zones: Rectangular boxes, dashed light blue border
+     * Subnets: Rectangular boxes, solid borders (green for public, cyan for private), light tinted fills
+     * Security Groups: Optional thin rectangular overlays
+   - All boxes must have SHARP CORNERS (corner radius = 0)
+
+3. AWS STANDARD COLORS:
+   - Background: Pure white (#FFFFFF)
+   - AWS Cloud border: Dark gray (#232F3E), 2-3px solid
+   - Region border: Teal (#00A4A6) or blue, 2px dashed
+   - VPC border: Purple (#8C4FFF), 2-3px solid
+   - AZ border: Light blue (#147EBA), 2px dashed
+   - Public Subnet: Green border (#7AA116), light green fill (#F2F6E8)
+   - Private Subnet: Cyan border (#00A4A6), light cyan fill (#E6F6F7)
+
+4. PROFESSIONAL AWS STYLING:
+   - Typography: Clean sans-serif (Arial, Amazon Ember, Helvetica)
+   - Label placement: Top-left for containers, below/beside icons for services
+   - Spacing: Generous whitespace, aligned to grid
+   - Lines/Arrows: Straight lines with 90-degree angles or smooth curves (NOT hand-drawn style)
+   - Arrow style: Simple solid/dashed lines with standard arrowheads
 
 CRITICAL REQUIREMENTS:
-1. COMPREHENSIVE COVERAGE: Include EVERY service, component, and resource mentioned in the architecture summary. Do NOT create a simple 3-5 component diagram. This must be a FULL, DETAILED architecture showing all layers, services, and connections.
-2. CLEAN DESIGN: NO emojis, NO decorative elements, NO clutter. Use simple text labels only.
-3. MULTI-LAYER ARCHITECTURE: Show complete infrastructure with multiple tiers, subnets, availability zones, and all services.
-4. STRUCTURED CONTAINERS: Use properly nested containers following AWS hierarchy:
-   - AWS Cloud (outermost container with label "AWS Cloud")
-   - Region container (inside AWS Cloud, labeled "Region: us-east-1" or similar)
-   - VPC container (inside Region, labeled "VPC: 10.0.0.0/16" or similar)
-   - Availability Zone containers (inside VPC, labeled "Availability Zone-1A", "Availability Zone-1B", etc.)
-   - Subnet containers (inside each AZ, labeled "Public Subnet", "Private Subnet", "Database Subnet")
-   - Auto Scaling Groups (where applicable, containing EC2 instances)
+1. CREATE THE ACTUAL DIAGRAM - not just a title, not just text, but a full visual architecture diagram
+2. USE OFFICIAL AWS SERVICE ICONS - show proper AWS icons for each service
+3. DRAW RECTANGULAR CONTAINERS WITH SHARP CORNERS - NO rounded boxes, follow AWS standards exactly
+4. ADD DATA FLOW ARROWS - connect services with clean, professional arrows
+5. USE PROPER LAYOUT - horizontal 16:9 format with left-to-right flow
+6. MATCH AWS DOCUMENTATION STYLE - the diagram should look like it came from AWS official documentation
 
 ARCHITECTURE SUMMARY TO DIAGRAM:
 {summary_text}
 
-MANDATORY: Analyze the summary above and identify ALL AWS services, components, and resources mentioned. Create a COMPREHENSIVE diagram that includes EVERYTHING. Do NOT simplify or omit components. This must be a complete, production-ready architecture diagram with all layers visible.
+========================================
+ABSOLUTE STRUCTURAL REQUIREMENTS
+========================================
 
-=== DIAGRAM STRUCTURE & HIERARCHY - FOLLOW TEMPLATE FORMAT ===
+1. MANDATORY LANDSCAPE ORIENTATION - 16:9 HORIZONTAL LAYOUT
+   CRITICAL: The diagram MUST be in LANDSCAPE orientation (WIDE, NOT TALL).
+   
+   - CANVAS SIZE: Use exactly 3840x2160 pixels (width x height) OR 1920x1080 pixels
+   - ASPECT RATIO: EXACTLY 16:9 (landscape/horizontal)
+   - WIDTH MUST BE GREATER THAN HEIGHT (e.g., 3840 WIDTH  2160 HEIGHT)
+   - THIS IS LANDSCAPE: Width=3840, Height=2160 ✓
+   - THIS IS WRONG PORTRAIT: Width=2160, Height=3840 ✗
+   
+   FLOW DIRECTION: LEFT TO RIGHT
+   - Data flows HORIZONTALLY from LEFT to RIGHT across the diagram
+   - Users/External systems on the LEFT side
+   - Edge services (CloudFront, ALB) in the LEFT-CENTER
+   - Application services in the CENTER
+   - Data services (RDS, S3) on the RIGHT side
+   - The architecture MUST flow: LEFT → CENTER → RIGHT
+   
+   HORIZONTAL ARRANGEMENT:
+   - Place external users/clients on the FAR LEFT (outside AWS Cloud)
+   - Place edge/ingress services (API Gateway, ALB, CloudFront) in LEFT zone
+   - Place compute/application (EC2, ECS, Lambda) in CENTER zone
+   - Place data/storage (RDS, DynamoDB, S3) in RIGHT zone
+   - Place monitoring/security services along the TOP or BOTTOM edge
+   - Availability Zones should be arranged side-by-side HORIZONTALLY, not stacked vertically
 
-CRITICAL: The diagram MUST use properly nested containers in this exact hierarchy:
-1. AWS Cloud Container (outermost)
-2. Region Container (inside AWS Cloud)
-3. VPC Container (inside Region)
-4. Availability Zone Containers (inside VPC, multiple AZs side by side)
-5. Subnet Containers (inside each AZ)
-6. Auto Scaling Groups (inside subnets where applicable)
-7. Individual Resources (inside appropriate containers)
+2. MANDATORY TOP-LEVEL CONTAINERS (NO EXCEPTIONS)
+   You MUST create and clearly show ALL of the following containers as distinct, labeled boxes:
 
-BACKGROUND: Pure white (#FFFFFF) - the entire diagram background must be white.
+   A. AWS CLOUD CONTAINER (OUTERMOST)
+      - REQUIRED: Draw one outermost container labeled exactly "AWS Cloud".
+      - This box MUST be visible, clearly bordered, and encompass the entire architecture.
+      - It MUST be the single largest bounding box around everything else.
+      - This container should span HORIZONTALLY across most of the 16:9 canvas width.
 
-CONTAINER HIERARCHY (FROM TEMPLATE):
+   B. REGION CONTAINER (INSIDE AWS CLOUD)
+      - REQUIRED: Draw a single Region container INSIDE the "AWS Cloud" box.
+      - Label it clearly, for example: "Region: us-east-1".
+      - There must be exactly ONE Region container in this diagram.
+      - This Region container MUST sit fully inside "AWS Cloud" and fully outside the VPC.
+      - This container should be WIDE (landscape), utilizing the horizontal space.
 
-1. AWS CLOUD CONTAINER (OUTERMOST):
-   - Label: "AWS Cloud" at top-left
-   - Border: Dark gray (#232F3E), 2px solid - MUST be clearly visible
-   - Background: White (#FFFFFF)
-   - Contains the entire architecture
-   - This is the outermost container
+   C. SINGLE VPC CONTAINER (INSIDE REGION)
+      - REQUIRED: Draw exactly ONE VPC container inside the Region container.
+      - Label it clearly, for example: "VPC: 10.0.0.0/16".
+      - All AZs, subnets, and VPC-scoped resources MUST be inside this single VPC box.
+      - There MUST NOT be multiple VPCs unless explicitly described, and even then this diagram still requires at least one clearly labeled primary VPC.
+      - The hierarchy MUST be: AWS Cloud → Region → VPC (in that order, with visible nesting).
+      - The VPC should be WIDE (landscape), spanning most of the horizontal space.
 
-2. REGION CONTAINER (INSIDE AWS CLOUD):
-   - Label: "Region" or "Region: us-east-1" at top-left
-   - Border: Teal/Blue (#00A4A6), 2px dashed - MUST be clearly visible
-   - Background: White (#FFFFFF)
-   - Inside the AWS Cloud container
-   - Contains VPC and global services
+   CRITICAL: If you generate a diagram that does not show:
+   - An OUTERMOST "AWS Cloud" box,
+   - A single "Region" box inside that AWS Cloud box, and
+   - A single "VPC" box inside that Region box,
+   then the diagram is INVALID. You must not produce such a diagram.
 
-3. VPC CONTAINER (INSIDE REGION):
-   - Label: "VPC" or "VPC: 10.0.0.0/16" at top-left
-   - Border: Purple (#8C4FFF), 2px solid - MUST be clearly visible
-   - Background: White (#FFFFFF) or very light tint
-   - Inside the Region container
-   - Contains all VPC resources (AZs, subnets, etc.)
+3. STRICT CONTAINER HIERARCHY (MANDATORY)
+   The COMPLETE hierarchy MUST be:
 
-4. AVAILABILITY ZONE CONTAINERS (INSIDE VPC):
-   - Create MULTIPLE AZ containers (at least 2-3 AZs)
-   - Label each: "Availability Zone-1A", "Availability Zone-1B", "Availability Zone-1C"
-   - Border: Light blue (#147EBA), 2px dashed - MUST be clearly visible
-   - Background: White (#FFFFFF)
-   - Arranged SIDE BY SIDE (horizontally) within the VPC
-   - Each AZ contains subnets
+   1) AWS Cloud (outermost box) - SPANS HORIZONTALLY
+   2) Region (inside AWS Cloud) - SPANS HORIZONTALLY
+   3) VPC (inside Region) - SPANS HORIZONTALLY
+   4) Availability Zones (inside VPC, arranged side-by-side HORIZONTALLY, not vertically)
+   5) Subnets (inside each Availability Zone, can be stacked vertically within each AZ)
+   6) Auto Scaling Groups (inside subnets if applicable)
+   7) Individual resources (inside the appropriate subnet / group)
 
-5. SUBNET CONTAINERS (INSIDE EACH AZ):
-   Create THREE types of subnets in EACH Availability Zone:
+   No containers may "float" outside their correct parent. No AZ or subnet may exist outside the VPC. No VPC may exist outside the Region. No Region may exist outside AWS Cloud.
 
-   A. PUBLIC SUBNET:
-      - Label: "Public subnet" at top
-      - Border: Green (#7AA116), 2px solid - MUST be clearly visible
-      - Background: Very light green (#F2F6E8)
-      - Contains: NAT Gateway, Elastic Network Interface
-      - Place in EACH AZ
+4. WHITE BACKGROUND (MANDATORY)
+   - The ENTIRE diagram background MUST be pure white (#FFFFFF).
+   - There MUST NOT be gradients, patterns, or off-white backgrounds.
+   - All containers sit on top of this pure white background.
 
-   B. PRIVATE APPLICATION SUBNET:
-      - Label: "Private subnet" at top
-      - Border: Cyan (#00A4A6), 2px solid - MUST be clearly visible
-      - Background: Very light cyan (#E6F6F7)
-      - Contains: ECS containers, Auto Scaling Groups, EC2 instances
-      - Place in EACH AZ
+========================================
+COMPREHENSIVE COVERAGE & QUALITY
+========================================
 
-   C. DATABASE/STORAGE SUBNET:
-      - Label: "Private subnet" (for databases) at top
-      - Border: Cyan (#00A4A6), 2px solid - MUST be clearly visible
-      - Background: Very light cyan (#E6F6F7)
-      - Contains: RDS, DocumentDB, ElastiCache, etc.
-      - Place in EACH AZ
+CRITICAL COVERAGE:
+1. COMPREHENSIVE ARCHITECTURE
+   - Include EVERY AWS service, component, resource, integration, security layer, monitoring component, and data store mentioned in {summary_text}.
+   - Do NOT create a simplified, high-level “marketing” diagram with only a few components. This MUST be a production-grade, detailed architecture.
 
-6. AUTO SCALING GROUPS (INSIDE SUBNETS):
-   - Label: "Auto Scaling Group" or service-specific name
-   - Border: Orange (#D86613), 2px dashed - MUST be clearly visible
-   - Background: Transparent or white
-   - Contains: Multiple EC2 instances or containers
-   - Show vertically within the subnet
-   - Label with service name (e.g., "FrontEnd", "Backend", "VoiceAgent")
+2. NO OMISSIONS
+   - For each service or feature described in the summary, show its corresponding icon and placement in the architecture.
+   - If multiple environments or tiers (edge, web, app, data, analytics, shared services) are mentioned, show all of them.
 
-7. INDIVIDUAL RESOURCES:
-   Place specific AWS services inside appropriate containers:
-   - EC2 instances (container icons in orange #ED7100)
-   - ECS clusters and tasks
-   - Lambda functions
-   - Load Balancers (outside VPC, connected to public subnets)
-   - Internet Gateway (connected to VPC)
-   - NAT Gateways (in public subnets)
-   - Databases (in database subnets, show cluster relationships)
-   - Storage services
+3. PRODUCTION-READY DETAIL
+   - Show multi-AZ, redundancy, failover, and DR patterns where described.
+   - Show all key data flows, integration points, and dependencies.
+   - Show security controls and monitoring paths.
 
-8. GLOBAL SERVICES (OUTSIDE VPC, INSIDE REGION):
-   - Place at the top of the Region container
-   - Include: IAM, CloudTrail, CloudWatch, Config, GuardDuty, Security Hub
-   - Arrange horizontally in a row
-   - Each with official AWS icon and label
+========================================
+CONTAINER DETAILS & COLORS (AWS STANDARD)
+========================================
 
-9. EXTERNAL SERVICES (OUTSIDE AWS CLOUD):
-   - Users/Admins (user icons)
-   - External integrations (LiveKit, Deepgram, QdrantDB, etc.)
-   - Place on the left or bottom of the diagram
-   - Connect to appropriate AWS services with arrows
+CRITICAL: ALL containers MUST use RECTANGULAR shapes with SHARP 90-degree CORNERS.
+NO rounded corners, NO curved edges, NO ellipses. This is AWS standard.
 
-10. CONNECTIVITY:
-   - Internet Gateway: Connect to VPC, then to public subnets
-   - NAT Gateway: One per AZ in public subnet
-   - Load Balancers: Place outside VPC but connected to public subnets via ENI
-   - Show all connections with arrows
-   - Label connection types (HTTPS, gRPC, etc.)
+AWS Cloud Container (OUTERMOST)
+- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
+- Label: "AWS Cloud" at top-left
+- Border: Dark gray (#232F3E), 2-3px solid, clearly visible
+- Background: White (#FFFFFF)
+- Contains EVERYTHING else
+- MUST be rectangular, not rounded
 
-11. RESOURCE GROUPING EXAMPLES (FROM TEMPLATE):
-   - ECS Cluster: Dashed orange border container with multiple ECS task containers inside
-   - DocumentDB Cluster: Dashed blue border with multiple DB instances across AZs
-   - Auto Scaling Group: Dashed orange border with multiple EC2/container instances
-   - Show replication arrows between database instances in different AZs
+Region Container (INSIDE AWS Cloud)
+- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
+- Label: "Region: <name>" (e.g., "Region: us-east-1") at top-left
+- Border: Teal/Blue (#00A4A6), 2px dashed
+- Background: White (#FFFFFF)
+- Contains the VPC and all regional/global services drawn in this diagram
+- MUST be rectangular, not rounded
 
-CRITICAL STRUCTURE RULES:
-1. Every container MUST have a clearly visible border (minimum 2px)
-2. Every container MUST have a label at the top-left
-3. Containers must be properly nested (no overlapping at same level)
-4. Use the exact border colors and styles specified above
-5. Arrange AZs horizontally (side by side)
-6. Arrange subnets vertically within each AZ
-7. Show proper hierarchy: Cloud > Region > VPC > AZ > Subnet > Resources
+VPC Container (INSIDE Region)
+- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
+- Label: "VPC: <CIDR>" (e.g., "VPC: 10.0.0.0/16") at top-left
+- Border: Purple (#8C4FFF), 2-3px solid
+- Background: White (#FFFFFF)
+- Contains all AZs, subnets, and VPC‑scoped resources
+- MUST be rectangular, not rounded
 
-=== NETWORKING & CONNECTIVITY ===
+Availability Zone Containers (INSIDE VPC)
+- Shape: RECTANGLES with SHARP CORNERS (corner radius = 0)
+- At least 2 (preferably 2–3) AZs side-by-side horizontally: e.g., "Availability Zone 1A", "Availability Zone 1B", "Availability Zone 1C"
+- Border: Light blue (#147EBA), 2px dashed
+- Background: White (#FFFFFF)
+- Each AZ contains its subnets arranged vertically
+- MUST be rectangular, not rounded
 
-- Internet Gateway: One per VPC, connect to public subnets with solid line
-- NAT Gateway: One per AZ in public subnet, connect to private subnets with arrow
-- Route Tables: Show routing paths with labeled arrows
-- VPC Peering: If mentioned, show with dashed line between VPCs
-- VPN Connection: Show with labeled connection line
-- Direct Connect: Show with dedicated connection line
-- Security Groups: Show as boxes around resource groups, label with SG names
-- Network ACLs: Show at subnet level if mentioned
+Subnet Containers (INSIDE EACH AZ)
+- Shape: RECTANGLES with SHARP CORNERS (corner radius = 0)
+- Public Subnet:
+  - Label: "Public Subnet"
+  - Border: Green (#7AA116), 2px solid
+  - Background: Very light green (#F2F6E8)
+  - Contains NAT Gateway, IGW attachments, public ENIs, and public-facing load balancers if applicable
+  - MUST be rectangular, not rounded
 
-=== DATA FLOW & CONNECTIONS ===
+- Private Application Subnet:
+  - Label: "Private Subnet (Application)" or similar
+  - Border: Cyan (#00A4A6), 2px solid
+  - Background: Very light cyan (#E6F6F7)
+  - Contains ECS services, EC2 application servers, ASGs, etc.
+  - MUST be rectangular, not rounded
 
-Use directional arrows with specific conventions:
-- Solid green arrows: HTTPS/HTTP traffic (public-facing)
-- Solid blue arrows: Internal API calls
-- Dashed orange arrows: Database queries
-- Dashed purple arrows: Message queue/event flows
-- Solid red arrows: Authentication/authorization flows
-- Label each arrow with:
-  * Protocol (HTTPS, gRPC, MQTT, etc.)
-  * Port numbers if critical (443, 80, 3306, etc.)
-  * Data type if relevant (API calls, file uploads, etc.)
+- Private Database/Storage Subnet:
+  - Label: "Private Subnet (Database/Storage)" or similar
+  - Border: Cyan (#00A4A6), 2px solid
+  - Background: Very light cyan (#E6F6F7)
+  - Contains RDS, Aurora, DocumentDB, ElastiCache, and other DB/storage resources
+  - MUST be rectangular, not rounded
 
-Flow patterns to show:
-- User → CloudFront → WAF → ALB → Application → Database
-- External System → API Gateway → Lambda → DynamoDB
-- Application → SQS → Lambda → SNS → Application
-- Application → ElastiCache (read path)
-- Application → RDS (write path)
+Auto Scaling Groups (INSIDE Subnets where applicable)
+- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
+- Container label: "Auto Scaling Group – <Role>"
+- Border: Orange (#D86613), 2px dashed
+- Background: White or transparent
+- Contains multiple EC2 or container icons representing scaled instances/tasks
+- MUST be rectangular, not rounded
 
-=== COMPUTE LAYER DETAILS ===
+Individual Resources
+- Place EC2, ECS, Lambda, RDS, S3, DynamoDB, API Gateway, ALB/NLB, SQS, SNS, EventBridge, Secrets Manager, KMS, WAF, Shield, GuardDuty, Config, CloudTrail, CloudWatch, etc. in their appropriate containers.
+- Use OFFICIAL AWS ARCHITECTURE ICONS (from AWS Architecture Icons set), consistent size (approx. 64x64px).
+- Icons should be the official AWS service icons with proper colors and styling.
+- Provide short, clear labels under or beside each icon.
+- Icons are typically square or follow AWS icon standard shapes (NOT rounded boxes around them).
 
-EC2 Instances:
-- Show instance icons with type labels (t3.medium, m5.large, etc.)
-- Group by Auto Scaling Group if applicable
-- Show Launch Templates if mentioned
-- Indicate spot instances vs on-demand if specified
+Global / Management Services (INSIDE Region, OUTSIDE VPC)
+- Place IAM, CloudTrail, CloudWatch, AWS Config, GuardDuty, Security Hub, etc. along the top of the Region container.
+- Arrange them horizontally with icons and labels.
+- Use official AWS icons for these services.
 
-Containers (ECS/EKS):
-- Show ECS Cluster or EKS Cluster as container
-- Show individual service/task definitions
-- Show Fargate if serverless containers
-- Show ECR (Elastic Container Registry) connection
+External Entities (OUTSIDE AWS Cloud)
+- Place users, clients, administrators, external systems, SaaS integrations, and partner services outside the "AWS Cloud" container.
+- Use simple icons or shapes (e.g., user icon, computer icon, building icon).
+- Connect them via arrows to edge services such as CloudFront, Route 53, API Gateway, ALB, or VPN/Direct Connect.
 
-Lambda Functions:
-- Show as serverless function icons
-- Group related functions
-- Show event sources (API Gateway, S3, SQS, etc.)
-- Show VPC configuration if Lambda is in VPC
+CRITICAL STYLING REMINDER:
+- ALL container boxes MUST be RECTANGLES with SHARP CORNERS (90-degree angles, NO rounding)
+- This is non-negotiable for AWS standard diagrams
+- If the diagram tool defaults to rounded corners, you MUST override it to use sharp corners
+- Set border-radius = 0 or corner-radius = 0 for all container shapes
 
-=== STORAGE & DATABASE DETAILS ===
+========================================
+NETWORKING & DATA FLOWS
+========================================
 
-S3 Buckets:
-- Show as storage icons
-- Label bucket names if mentioned
-- Show lifecycle policies if relevant
-- Show cross-region replication if mentioned
-- Connect to applications with upload/download arrows
+CRITICAL: HORIZONTAL LEFT-TO-RIGHT FLOW
+- The entire architecture MUST flow horizontally from LEFT to RIGHT
+- Place components to create a clear left-to-right progression:
+  1. LEFT: External users/clients (outside AWS Cloud)
+  2. LEFT-CENTER: Edge/Ingress (CloudFront, Route53, API Gateway, ALB, IGW)
+  3. CENTER: Application Layer (ECS, EC2, Lambda, ASG)
+  4. RIGHT-CENTER: Data processing and caching
+  5. RIGHT: Data Storage (RDS, DynamoDB, S3, databases)
+- Arrows should predominantly point LEFT → RIGHT showing data flow progression
+- Avoid vertical-only layouts; prioritize horizontal arrangement
 
-RDS:
-- Show primary and standby instances in different AZs
-- Show read replicas if mentioned
-- Label database engine (PostgreSQL, MySQL, etc.)
-- Show connection to application layer
+Networking:
+- Internet Gateway:
+  - One per VPC, attached to the VPC border.
+  - Connect to public subnets.
 
-DynamoDB:
-- Show as global service or regional
-- Show Global Tables if multi-region
-- Show DynamoDB Streams if mentioned
+- NAT Gateway:
+  - One per AZ in a Public Subnet (if used).
+  - Connect NAT to private subnets with arrows.
 
-ElastiCache:
-- Show Redis or Memcached clusters
-- Show primary and replica nodes
-- Show connection to application layer
+- Load Balancers:
+  - Place ALBs/NLBs at the edge of the VPC or in public subnets (depending on architecture).
+  - Connect them to targets (EC2/ECS, etc.).
 
-=== SECURITY LAYER ===
+- VPC Peering / Transit / VPN / Direct Connect:
+  - Show dashed or dedicated lines as appropriate when mentioned in the summary.
 
-- IAM Roles: Show as labels on resources (e.g., "EC2 Role", "Lambda Role")
-- Security Groups: Visual boxes around resource groups
-- Network ACLs: Show at subnet boundaries
-- AWS WAF: Show as protection layer
-- AWS Shield: Show as DDoS protection
-- Secrets Manager: Show connections to applications
-- KMS: Show encryption keys and their usage
-- VPC Endpoints: Show if private connectivity to AWS services
+Security:
+- Show security groups as boxes or overlays around groups of resources or as labels next to them.
+- Show Network ACLs at subnet boundaries where relevant.
+- Show WAF and Shield in front of CloudFront or ALBs if used.
+- Show IAM roles next to resources where important (e.g., “EC2 IAM Role”, “Lambda Execution Role”).
+- Show KMS keys and Secrets Manager where encryption and secret retrieval occur.
 
-=== MONITORING & OBSERVABILITY ===
+Data Flows:
+- Use directional arrows with consistent meaning:
+  - Solid green: Public HTTP/HTTPS traffic (e.g., User → CloudFront → ALB).
+  - Solid blue: Internal service-to-service traffic (e.g., App → API → Microservice).
+  - Dashed orange: Database queries / data store access.
+  - Dashed purple: Messaging/event flows (SQS, SNS, EventBridge, streaming).
+  - Solid red: Authentication/authorization flows (Cognito, IdP, IAM integration).
 
-- CloudWatch: Show metrics collection from all resources
-- CloudWatch Logs: Show log aggregation
-- CloudTrail: Show API logging
-- X-Ray: Show distributed tracing if mentioned
-- CloudWatch Alarms: Show alerting connections
-- SNS Topics: Show notification flows
-- EventBridge: Show event routing if mentioned
+- Label important arrows with:
+  - Protocol: HTTPS, HTTP, gRPC, MQTT, etc.
+  - Ports: 443, 80, 3306, 5432, etc., when relevant.
+  - Purpose: “API Request”, “File Upload”, “Metrics”, “Logs”, etc.
 
-=== INTEGRATION POINTS ===
+========================================
+LAYOUT & DESIGN (16:9, CLEAN)
+========================================
 
-- API Gateway: Show REST/HTTP APIs with clear endpoints
-- SQS Queues: Show as message queue icons with FIFO/Standard distinction
-- SNS Topics: Show as pub/sub notification icons
-- EventBridge: Show as event bus
-- Step Functions: Show workflow if mentioned
-- AppSync: Show GraphQL API if mentioned
+Layout (MUST MATCH 16:9):
+- Use full width of the 16:9 canvas.
+- HORIZONTAL ORIENTATION is mandatory:
+  - AWS Cloud fills the canvas.
+  - Region inside AWS Cloud, also spanning most of the width.
+  - VPC inside Region.
+  - AZs side-by-side horizontally within the VPC.
+  - Subnets stacked vertically inside each AZ.
 
-=== VISUAL DESIGN STANDARDS - CRITICAL FOR CLEAN DIAGRAMS ===
+Grid and Alignment:
+- Align all containers and icons to a consistent grid (e.g., 20px).
+- Maintain generous white space (40px+ between major sections, 20–30px within groups).
+- No overlapping boxes or icons; no elements touching borders.
+- Left-align labels; center icons within containers.
 
-CLEAN DESIGN PRINCIPLES (MANDATORY):
-- ABSOLUTELY NO emojis anywhere in the diagram (no 🌍, 🏗️, 📍, ☁️, etc.)
-- NO decorative elements or unnecessary graphics
-- Use simple, clean text labels only (e.g., "Public Subnet" not "🌍 Public Subnet")
-- Maintain generous white space (minimum 40px between major sections)
-- Align all elements to a strict 20px grid
-- Avoid overlapping elements completely
-- Use minimal, professional color palette with subtle tints
-- Keep labels concise and clear (max 20 characters per label)
+Colors:
+- Background: #FFFFFF (pure white) for the full canvas.
+- Region border: Dark or teal as specified, clearly visible.
+- VPC border: Purple (#8C4FFF), 2px solid.
+- AZ border: Light blue (#147EBA), 2px dashed.
+- Subnet backgrounds: subtle tints as specified (green/cyan variants).
+- Text color: Dark gray (#2D3436) or black (#000000).
 
-Layout (Strict Grid System - HORIZONTAL LEFT TO RIGHT):
-- Use a strict 20px grid system - all elements align to grid
-- HORIZONTAL LEFT-TO-RIGHT flow: External/Edge → AWS Region (with VPC and AZs) → Additional Services
-- All major sections arranged in COLUMNS from left to right
-- Minimum resolution: 3840x2160 pixels (4K quality) - wider than tall to accommodate horizontal layout
-- Aspect ratio: Prefer landscape orientation (width > height)
-- Use consistent icon sizes: 64x64px for all AWS service icons
-- Maintain 60-80px spacing between major columns (left to right)
-- Maintain 20-30px spacing between components within sections
-- Use alignment guides - all elements must align perfectly
-- Left-align text labels consistently
-- Center-align icons within their containers
-- No elements should overlap or touch
-- All boxes (Region, VPC, AZs, Subnets) must have CLEARLY VISIBLE BORDERS
+Typography:
+- Region / VPC labels: Bold, ~18pt.
+- Subnet labels: Bold, ~14pt.
+- Service labels: Regular, ~12pt.
+- Connection labels: Regular, ~10pt.
+- Use plain, professional sans-serif font (e.g., Arial, Helvetica).
+- NO emojis, NO decorative fonts, NO special characters in labels.
 
-Colors (AWS Standard Palette - SUBTLE TINTS ONLY):
-- Public/Internet-facing: Very light green (#E8F5E9) - 10% opacity, subtle
-- Private/Internal: Very light yellow (#FFF9C4) - 10% opacity, subtle
-- Database/Storage: Very light orange (#FFE0B2) - 10% opacity, subtle
-- Security: Very light red (#FFEBEE) - 10% opacity, subtle
-- Management/Global: Light gray (#F5F5F5)
-- AWS Region box border: Dark gray (#333333), 3px solid border - MUST be clearly visible
-- VPC box border: Medium gray (#666666), 2px solid border - MUST be clearly visible
-- VPC box background: Very light gray (#F9F9F9) - subtle tint to distinguish from Region
-- AZ box borders: Light gray (#CCCCCC), 2px dashed border - MUST be clearly visible
-- Subnet borders: Colored borders (Green/Orange/Red), 2px solid - MUST be clearly visible
-- Background: Pure white (#FFFFFF) - ENTIRE diagram background must be white
-- Text: Dark gray (#2D3436) or black (#000000)
+========================================
+OUTPUT SPECIFICATIONS (MANDATORY)
+========================================
 
-Typography (Clean, Professional, NO Emojis):
-- VPC/Region labels: Bold, 18pt, dark gray (#2D3436), simple text like "VPC" or "AWS Region: us-east-1"
-- Subnet labels: Bold, 14pt, dark gray (#2D3436), simple text like "Public Subnet (10.0.1.0/24)"
-- Service labels: Regular, 12pt, dark gray (#2D3436), simple text like "EC2 Instance" or "RDS PostgreSQL"
-- Connection labels: Regular, 10pt, dark gray (#2D3436), simple text like "HTTPS/443" or "API/8080"
-- Font: Arial or Helvetica (sans-serif, professional)
-- CRITICAL: NO emojis, NO decorative fonts, NO special characters in labels
-- Use plain text: "Public Subnet" not "🌍 Public Subnet"
-- Use plain text: "VPC" not "🏗️ VPC"
-- Use plain text: "Availability Zone 1" not "📍 AVAILABILITY ZONE 1"
-
-Icons (Official AWS Icons Only):
-- Use official AWS Architecture Icons exclusively
-- Maintain consistent icon size: 64x64px for all icons
-- Group related services visually with subtle background boxes
-- Add service name labels below icons (simple text, no emojis)
-- Ensure icons are properly aligned and spaced
-
-=== CONTENT COMPLETENESS - CRITICAL ===
-
-MANDATORY INCLUSIONS (DO NOT SIMPLIFY):
-- Every AWS service mentioned in the architecture summary MUST be included
-- All data flows and connections MUST be shown
-- All integration points MUST be visible
-- Security boundaries and controls MUST be displayed
-- Network topology (subnets, AZs, routing) MUST be detailed
-- High availability patterns (Multi-AZ, replication) MUST be shown
-- Disaster recovery elements if mentioned MUST be included
-- Cost optimization elements (reserved instances, spot) if mentioned MUST be shown
-
-CRITICAL: This must be a COMPREHENSIVE, DETAILED architecture diagram. Do NOT create a simple diagram with only 3-5 components. The architecture summary contains multiple services, layers, and components - ALL of them must be included in the diagram. If the summary mentions:
-- Multiple services → Show ALL of them
-- VPC with subnets → Show the complete VPC structure with all subnets
-- Multiple availability zones → Show ALL AZs
-- Security services → Show ALL security layers
-- Monitoring services → Show ALL monitoring components
-- Storage services → Show ALL storage components
-- Compute services → Show ALL compute resources
-
-The diagram must be DETAILED and COMPLETE, not simplified or abstracted.
-
-=== OUTPUT SPECIFICATIONS ===
-
-CRITICAL REQUIREMENTS:
-1. Generate a SINGLE high-resolution PNG image file
-2. Save the file at this EXACT path: {absolute_output_path}
-3. The file MUST be a valid PNG image (not code, not DOT, not text)
-4. Resolution: Minimum 1920x1080, preferably 2560x1440 or higher
-5. File format: PNG with transparency support
-6. Quality: Production-ready for presentations and documentation
+- Output: ONE high‑resolution PNG image file ONLY.
+- CRITICAL ASPECT RATIO: EXACTLY 16:9 LANDSCAPE (HORIZONTAL, WIDE format)
+  * WIDTH > HEIGHT (e.g., 3840 pixels wide × 2160 pixels high)
+  * NOT 9:16 portrait (that would be 2160 wide × 3840 high) ✗
+  * MUST BE 16:9 landscape (3840 wide × 2160 high) ✓
+- Valid landscape resolutions:
+  * PREFERRED: 3840×2160 (width × height)
+  * ACCEPTABLE: 1920×1080 (width × height)
+  * ACCEPTABLE: 2560×1440 (width × height)
+- INVALID portrait resolutions (DO NOT USE):
+  * 2160×3840 ✗ (this is portrait 9:16, WRONG)
+  * 1080×1920 ✗ (this is portrait 9:16, WRONG)
+- Background: Pure white (#FFFFFF).
+- File format: PNG (valid image file, not code or text).
+- Save to EXACT path: {absolute_output_path}
+- The diagram MUST be:
+  - CLEAN (no clutter, no overlapping).
+  - COMPREHENSIVE (all elements from {summary_text}).
+  - PRODUCTION-READY (suitable for senior stakeholders and documentation).
+  - HORIZONTAL (landscape, wider than tall, flows LEFT to RIGHT).
 
 DO NOT:
-- Generate DOT, Mermaid, PlantUML, or any code format
-- Output text descriptions or explanations
-- Create multiple files
-- Use placeholder text or "TODO" items
-- Use emojis or decorative elements anywhere
-- Create cluttered or overlapping layouts
-- Use bright or neon colors
-- Add unnecessary decorative graphics
+- Produce DOT, Mermaid, PlantUML, or any text-based diagram syntax.
+- Output textual description instead of the PNG.
+- Use emojis or decorative graphics.
+- Change the aspect ratio away from 16:9 LANDSCAPE.
+- Create a PORTRAIT (9:16, tall) diagram - it MUST be LANDSCAPE (16:9, wide).
+- Omit the AWS Cloud, Region, or VPC containers.
+- Simplify the architecture to a small subset of components.
+- Make the diagram taller than it is wide.
 
-CRITICAL QUALITY REQUIREMENTS:
-- The diagram must be CLEAN and PROFESSIONAL
-- The diagram must be COMPREHENSIVE and DETAILED (not simplified)
-- All elements must be properly aligned to a grid
-- No overlapping components
-- Generous white space throughout
-- Simple, readable labels (no emojis, no special characters)
-- Subtle color tints only (10% opacity backgrounds)
-- Clear, professional typography
-- Consistent spacing and alignment
+FINAL REMINDER:
+- You MUST show:
+  - An outer "AWS Cloud" box (wide, horizontal).
+  - A single "Region" box inside it (wide, horizontal).
+  - A single "VPC" box inside the Region (wide, horizontal).
+  - Multi-AZ arranged HORIZONTALLY (side by side, not stacked).
+  - Subnet-level detail, and all services and flows described in {summary_text}.
+  - Data flow from LEFT (users/edge) → CENTER (app) → RIGHT (data).
+- The canvas MUST be 16:9 LANDSCAPE (e.g., 3840×2160, NOT 2160×3840).
+- Pure white background.
+- The diagram MUST be detailed, clean, enterprise-grade, and HORIZONTAL.
 
-FINAL REMINDER - CRITICAL REQUIREMENTS:
-- This must be a FULL, DETAILED architecture diagram showing ALL services, components, and layers
-- Do NOT create a simple 3-5 component diagram
-- Include EVERYTHING mentioned in the architecture summary
-- Show complete infrastructure with multiple tiers, subnets, availability zones
+========================================
+ACTION REQUIRED - GENERATE THE DIAGRAM
+========================================
 
-LAYOUT REQUIREMENTS (MANDATORY):
-- HORIZONTAL LAYOUT: Arrange all major sections LEFT TO RIGHT (not top to bottom)
-- WHITE BACKGROUND: Entire diagram background must be pure white (#FFFFFF)
-- CLEAR BOXES: All containers MUST have clearly visible borders:
-  * AWS Region box: Dark gray border (3px solid) - clearly visible
-  * VPC box: Medium gray border (2px solid) - clearly visible, inside Region box
-  * AZ boxes: Light gray dashed border (2px) - clearly visible, inside VPC box
-  * Subnet boxes: Colored borders (2px solid) - clearly visible, inside AZ boxes
-- All boxes must have labels at the top (Region name, VPC name, AZ names, Subnet names)
-- Box borders must be thick enough to be clearly visible (minimum 2px)
+STEP-BY-STEP DIAGRAM CREATION PROCESS:
 
-The diagram must be immediately usable in:
-- Architecture reviews with senior stakeholders
-- Technical documentation for developers
-- Client presentations (executive-level)
-- Compliance documentation
-- Onboarding materials for new team members
-- Printing at high resolution
+1. IDENTIFY COMPONENTS from the architecture summary:
+   - List ALL AWS services: EC2, ECS, Lambda, RDS, S3, DynamoDB, ALB, API Gateway, CloudFront, etc.
+   - List all networking components: VPC, subnets, security groups, NAT gateways, internet gateways
+   - List all security services: IAM, WAF, Shield, GuardDuty, KMS, Secrets Manager
+   - List all monitoring: CloudWatch, CloudTrail, X-Ray
+   - List all integrations: SQS, SNS, EventBridge, Step Functions
 
-Generate a comprehensive, detailed, clean, professional, enterprise-grade diagram with HORIZONTAL LAYOUT, WHITE BACKGROUND, and CLEAR BOXES for Region/VPC/AZs now and save it as a PNG image file at: {absolute_output_path}"""
+2. CREATE THE DIAGRAM STRUCTURE (AWS STANDARD SHAPES):
+   - Start with AWS Cloud container (outermost RECTANGULAR box with SHARP CORNERS)
+   - Add Region container inside AWS Cloud (RECTANGULAR with SHARP CORNERS)
+   - Add VPC container inside Region (RECTANGULAR with SHARP CORNERS)
+   - Add 2-3 Availability Zones side-by-side horizontally inside VPC (RECTANGULAR with SHARP CORNERS)
+   - Add subnets (Public, Private App, Private Data) inside each AZ (RECTANGULAR with SHARP CORNERS)
+   - ALL boxes MUST have 90-degree corners, NO rounded corners, NO curved edges
 
+3. PLACE AWS SERVICE ICONS (OFFICIAL AWS ICONS):
+   - Use OFFICIAL AWS Architecture Icons from AWS Architecture Icons set
+   - Each service gets its official icon: EC2 (orange), RDS (blue), S3 (green), Lambda (orange), etc.
+   - Place each identified service in its appropriate subnet/container
+   - Size icons consistently (~64x64 pixels)
+   - Add descriptive labels under each icon
+   - DO NOT put service icons inside rounded boxes - use the official square/rectangular icons directly
+
+4. DRAW CONNECTIONS:
+   - Add directional arrows between services showing data flow
+   - Use different arrow styles for different types of connections (sync/async, request/response)
+   - Label arrows with protocols (HTTPS, gRPC, etc.)
+
+5. APPLY VISUAL STYLING (AWS STANDARD):
+   - Set canvas to 3840×2160 (16:9 landscape)
+   - Use white background (#FFFFFF)
+   - Apply proper colors to containers (as specified above)
+   - Ensure proper spacing and alignment
+   - CRITICAL: Set corner-radius = 0 or border-radius = 0 for ALL container boxes
+   - Use RECTANGULAR shapes with SHARP 90-degree CORNERS throughout
+   - Match AWS official documentation diagram style
+
+6. SAVE THE DIAGRAM:
+   - Export as high-quality PNG image
+   - Save to: {absolute_output_path}
+
+CRITICAL VALIDATION BEFORE SAVING:
+- Verify the output is a PNG IMAGE file (not text, not code, not DOT file)
+- Verify the image contains VISUAL ELEMENTS (icons, boxes, arrows) not just text
+- Verify ALL services from the summary are represented
+- Verify the layout is HORIZONTAL (16:9, wider than tall)
+- VERIFY ALL CONTAINER BOXES ARE RECTANGULAR WITH SHARP CORNERS (NO rounded/curved boxes)
+- Verify boxes match AWS official diagram standards
+- Verify official AWS service icons are used (not generic shapes)
+
+NOW EXECUTE: Use the available diagram generation tools to create this complete AWS-standard architecture diagram and save it to the specified path.
+
+FINAL AWS STANDARDS CHECKLIST:
+✓ RECTANGULAR containers with SHARP CORNERS (corner-radius = 0)
+✓ Official AWS Architecture Icons
+✓ AWS standard colors for containers
+✓ Professional, clean layout matching AWS documentation
+✓ White background
+✓ 16:9 landscape orientation
+✗ NO rounded corners on containers
+✗ NO curved boxes
+✗ NO generic/custom icons
+"""
 
         # Initialize MCP client and agent
         mcp_client = MCPClient(lambda: stdio_client(
@@ -582,11 +662,26 @@ Generate a comprehensive, detailed, clean, professional, enterprise-grade diagra
         
         with mcp_client:
             tools = mcp_client.list_tools_sync()
+            # Try to print tool info safely
+            try:
+                tool_info = []
+                for tool in tools:
+                    if hasattr(tool, 'name'):
+                        tool_info.append(tool.name)
+                    elif hasattr(tool, '__name__'):
+                        tool_info.append(tool.__name__)
+                    else:
+                        tool_info.append(str(type(tool).__name__))
+                print(f"Available MCP tools ({len(tools)}): {tool_info}")
+            except Exception as e:
+                print(f"Available MCP tools: {len(tools)} tools loaded (couldn't list names: {e})")
+            
             agent = Agent(tools=tools)
             
             # Generate diagram
+            print(f"Sending prompt to agent (length: {len(diagram_prompt)} chars)")
             response = agent(diagram_prompt)
-            print(f"Agent response received: {str(response)[:200]}...")
+            print(f"Agent response received: {str(response)[:500]}...")
             
             # Check if diagram was generated at the expected path
             if output_path.exists():
@@ -657,9 +752,18 @@ Generate a comprehensive, detailed, clean, professional, enterprise-grade diagra
             
             # Check for image files (PNG, JPG, SVG) - prioritize files matching request ID
             image_files = []
-            request_id = output_path.stem.replace('_diagram', '')  # Extract request ID from filename
+            # Extract UUID request ID from filename (format: YYYYMMDD_HHMMSS_UUID_diagram.png)
+            filename_parts = output_path.stem.split('_')
+            # The UUID is typically the 3rd part (after timestamp and time)
+            if len(filename_parts) >= 3:
+                request_id = filename_parts[2]  # Just the UUID
+            else:
+                request_id = output_path.stem.replace('_diagram', '')  # Fallback
             
-            # Search in multiple directories
+            print(f"Looking for diagram files matching request ID: {request_id}")
+            print(f"Expected output path: {output_path}")
+            
+            # Search in multiple directories (including subdirectories)
             search_dirs = [output_dir]
             if generated_diagrams_dir.exists() and generated_diagrams_dir != output_dir:
                 search_dirs.append(generated_diagrams_dir)
@@ -667,13 +771,24 @@ Generate a comprehensive, detailed, clean, professional, enterprise-grade diagra
                 search_dirs.append(parent_output_dir)
             search_dirs.append(parent_dir)
             
+            # Use recursive glob to search subdirectories too
             for search_dir in search_dirs:
                 for pattern in ["*.png", "*.jpg", "*.jpeg", "*.svg"]:
+                    # Search current directory
                     image_files.extend([f for f in search_dir.glob(pattern) if f.is_file()])
+                    # Also search one level deep (for nested generated-diagrams folders)
+                    image_files.extend([f for f in search_dir.glob(f"*/{pattern}") if f.is_file()])
+            
+            print(f"Found {len(image_files)} total image files")
             
             if image_files:
                 # Filter to find files matching the request ID first
                 matching_files = [f for f in image_files if request_id in f.stem]
+                
+                print(f"Files matching request ID '{request_id}': {len(matching_files)}")
+                if matching_files:
+                    for mf in matching_files:
+                        print(f"  - {mf.name} (modified: {mf.stat().st_mtime})")
                 
                 if matching_files:
                     # If we have files matching the request ID, use the most recent one
@@ -833,6 +948,54 @@ async def generate_architecture_diagram(
         # Clean up temporary PDF file
         if temp_pdf_path.exists():
             temp_pdf_path.unlink()
+
+
+@app.get("/api/diagrams")
+async def list_diagrams():
+    """List all generated diagrams with metadata"""
+    try:
+        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
+        if not generated_diagrams_dir.exists():
+            return {"diagrams": []}
+        
+        diagrams = []
+        for file_path in generated_diagrams_dir.glob("*.png"):
+            if file_path.is_file():
+                stat_info = file_path.stat()
+                diagrams.append({
+                    "filename": file_path.name,
+                    "size": stat_info.st_size,
+                    "created": stat_info.st_ctime,
+                    "modified": stat_info.st_mtime,
+                    "url": f"/api/diagram-file/{file_path.name}"
+                })
+        
+        # Sort by creation time (newest first)
+        diagrams.sort(key=lambda x: x["created"], reverse=True)
+        
+        return {"diagrams": diagrams, "count": len(diagrams)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing diagrams: {str(e)}")
+
+
+@app.get("/api/diagram-file/{filename}")
+async def get_diagram_file(filename: str):
+    """Retrieve a specific diagram file by filename"""
+    diagram_path = OUTPUT_DIR / "generated-diagrams" / filename
+    
+    if not diagram_path.exists() or not diagram_path.is_file():
+        raise HTTPException(status_code=404, detail="Diagram not found")
+    
+    return FileResponse(
+        diagram_path,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        },
+        filename=filename
+    )
 
 
 @app.get("/api/diagram/{request_id}")

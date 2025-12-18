@@ -194,7 +194,7 @@ function App() {
 
           {/* AWS Region Input */}
           <div className="mb-6">
-            <label htmlFor="aws-region" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="aws-region" className="block text-sm font-medium text-gray-700 mb-2" style={{ display: 'none' }}>
               AWS Region
             </label>
             <input
@@ -205,12 +205,13 @@ function App() {
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#9C83C9] focus:border-[#9C83C9] outline-none transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
               disabled={uploading}
               placeholder="us-east-1"
+              style={{ display: 'none' }}
             />
           </div>
 
           {/* Bedrock Model ID Input */}
           <div className="mb-6">
-            <label htmlFor="bedrock-model" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="bedrock-model" className="block text-sm font-medium text-gray-700 mb-2" style={{ display: 'none' }}>
               Bedrock Model ID
             </label>
             <input
@@ -221,6 +222,7 @@ function App() {
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#9C83C9] focus:border-[#9C83C9] outline-none transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
               disabled={uploading}
               placeholder="anthropic.claude-3-sonnet-20240229-v1:0"
+              style={{ display: 'none' }}
             />
           </div>
 
