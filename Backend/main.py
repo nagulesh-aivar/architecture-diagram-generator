@@ -190,6 +190,8 @@ def generate_diagram_with_strands(summary_text: str, output_path: Path) -> Optio
 CRITICAL AWS STANDARD REQUIREMENTS:
 ✓ Use OFFICIAL AWS Architecture Icons (2023+ icon set)
 ✓ Use RECTANGULAR boxes with SHARP CORNERS (NO rounded/curved boxes)
+✓ MINIMAL ARROWS - only show essential data flows (Users→Edge→App→Database)
+✓ Simple arrow style (solid, black/gray) - NO color coding, NO excessive labels
 ✓ Follow AWS Well-Architected Framework diagram conventions
 ✓ Use AWS standard colors and styling
 ✓ Professional enterprise-grade appearance matching AWS documentation
@@ -198,11 +200,14 @@ CRITICAL AWS STANDARD REQUIREMENTS:
 ✗ DO NOT use custom icon styles
 ✗ DO NOT deviate from AWS standard diagram conventions
 ✗ DO NOT create flowchart-style diagrams
+✗ DO NOT add excessive arrows - keep it minimal and simple
+✗ DO NOT add arrows for monitoring/logging/security services
 
 IMMEDIATE TASK: Use the AWS diagram MCP tools available to you to generate a FULL VISUAL AWS ARCHITECTURE DIAGRAM with:
 ✓ Official AWS service icons (EC2, RDS, S3, Lambda, etc.) from AWS Architecture Icons
 ✓ RECTANGULAR container boxes with SHARP CORNERS (AWS Cloud, Region, VPC, AZs, Subnets)
-✓ Straight connection arrows showing data flow
+✓ MINIMAL arrows - only essential flows (Users→Edge→App→Database), simple solid style
+✓ NO arrows for monitoring/logging/security services
 ✓ Professional labels matching AWS documentation style
 ✓ Horizontal 16:9 layout (3840×2160 pixels)
 
@@ -400,21 +405,21 @@ Subnet Containers (INSIDE EACH AZ)
 - Public Subnet:
   - Label: "Public Subnet"
   - Border: Green (#7AA116), 2px solid
-  - Background: Very light green (#F2F6E8)
+  - Background: White (#FFFFFF) or transparent - NO colored fill
   - Contains NAT Gateway, IGW attachments, public ENIs, and public-facing load balancers if applicable
   - MUST be rectangular, not rounded
 
 - Private Application Subnet:
   - Label: "Private Subnet (Application)" or similar
   - Border: Cyan (#00A4A6), 2px solid
-  - Background: Very light cyan (#E6F6F7)
+  - Background: White (#FFFFFF) or transparent - NO colored fill
   - Contains ECS services, EC2 application servers, ASGs, etc.
   - MUST be rectangular, not rounded
 
 - Private Database/Storage Subnet:
   - Label: "Private Subnet (Database/Storage)" or similar
   - Border: Cyan (#00A4A6), 2px solid
-  - Background: Very light cyan (#E6F6F7)
+  - Background: White (#FFFFFF) or transparent - NO colored fill
   - Contains RDS, Aurora, DocumentDB, ElastiCache, and other DB/storage resources
   - MUST be rectangular, not rounded
 
@@ -448,70 +453,103 @@ CRITICAL STYLING REMINDER:
 - This is non-negotiable for AWS standard diagrams
 - If the diagram tool defaults to rounded corners, you MUST override it to use sharp corners
 - Set border-radius = 0 or corner-radius = 0 for all container shapes
+- NO FILL COLORS: All container backgrounds MUST be white (#FFFFFF) or transparent
+- Only borders should have colors - NO colored fills inside boxes
+- Boxes should be empty/transparent with only colored borders visible
 
 ========================================
 NETWORKING & DATA FLOWS
 ========================================
 
-CRITICAL: HORIZONTAL LEFT-TO-RIGHT FLOW
-- The entire architecture MUST flow horizontally from LEFT to RIGHT
-- Place components to create a clear left-to-right progression:
-  1. LEFT: External users/clients (outside AWS Cloud)
-  2. LEFT-CENTER: Edge/Ingress (CloudFront, Route53, API Gateway, ALB, IGW)
-  3. CENTER: Application Layer (ECS, EC2, Lambda, ASG)
-  4. RIGHT-CENTER: Data processing and caching
-  5. RIGHT: Data Storage (RDS, DynamoDB, S3, databases)
-- Arrows should predominantly point LEFT → RIGHT showing data flow progression
-- Avoid vertical-only layouts; prioritize horizontal arrangement
+CRITICAL: HORIZONTAL LEFT-TO-RIGHT FLOW (MANDATORY)
+- The ENTIRE architecture MUST flow HORIZONTALLY from LEFT to RIGHT - NOT top to bottom
+- This is a LANDSCAPE diagram - components MUST be arranged horizontally across the width
+- MANDATORY LAYOUT STRUCTURE:
+  1. LEFT EDGE: External users/clients (outside AWS Cloud) - place on the FAR LEFT
+  2. LEFT ZONE (20% width): Edge/Ingress services (CloudFront, Route53, API Gateway, ALB, IGW) - arranged horizontally
+  3. CENTER-LEFT ZONE (30% width): Application Layer (ECS, EC2, Lambda, ASG) - arranged horizontally
+  4. CENTER-RIGHT ZONE (30% width): Data processing, caching, messaging (ElastiCache, SQS, SNS) - arranged horizontally
+  5. RIGHT ZONE (20% width): Data Storage (RDS, DynamoDB, S3, databases) - arranged horizontally
+- Availability Zones MUST be side-by-side HORIZONTALLY (not stacked vertically)
+- Subnets within each AZ can be stacked vertically, but AZs themselves must be horizontal
+- All major components flow LEFT → RIGHT across the canvas width
+- Arrows MUST point LEFT → RIGHT showing horizontal data flow progression
+- NO vertical stacking of major components - everything flows horizontally
+- The diagram should read like a book: left to right, not top to bottom
 
-Networking:
+Networking (MINIMAL ARROWS):
 - Internet Gateway:
   - One per VPC, attached to the VPC border.
-  - Connect to public subnets.
+  - Show as icon - connect with ONE arrow to ALB/Load Balancer if needed.
 
 - NAT Gateway:
   - One per AZ in a Public Subnet (if used).
-  - Connect NAT to private subnets with arrows.
+  - Show as icon - NO arrows needed (it's implied for outbound traffic).
 
 - Load Balancers:
-  - Place ALBs/NLBs at the edge of the VPC or in public subnets (depending on architecture).
-  - Connect them to targets (EC2/ECS, etc.).
+  - Place ALBs/NLBs at the edge of the VPC or in public subnets.
+  - Connect with ONE arrow to application layer (EKS/EC2/Lambda).
 
 - VPC Peering / Transit / VPN / Direct Connect:
-  - Show dashed or dedicated lines as appropriate when mentioned in the summary.
+  - Show as icons or labels only - NO arrows unless critical to understanding the architecture.
 
 Security:
-- Show security groups as boxes or overlays around groups of resources or as labels next to them.
-- Show Network ACLs at subnet boundaries where relevant.
-- Show WAF and Shield in front of CloudFront or ALBs if used.
-- Show IAM roles next to resources where important (e.g., “EC2 IAM Role”, “Lambda Execution Role”).
-- Show KMS keys and Secrets Manager where encryption and secret retrieval occur.
+- Show security services (IAM, WAF, Shield, KMS, Secrets Manager) as ICONS ONLY
+- DO NOT add arrows connecting security services - they clutter the diagram
+- Show WAF and Shield in front of CloudFront or ALBs if used (as icons, minimal arrows)
+- Show IAM, KMS, Secrets Manager as icons placed near relevant services (no arrows)
+- Security groups and Network ACLs can be shown as labels or icons, but NO arrows
+- Keep security services visible but not connected with arrows - they're supporting services
 
-Data Flows:
-- Use directional arrows with consistent meaning:
-  - Solid green: Public HTTP/HTTPS traffic (e.g., User → CloudFront → ALB).
-  - Solid blue: Internal service-to-service traffic (e.g., App → API → Microservice).
-  - Dashed orange: Database queries / data store access.
-  - Dashed purple: Messaging/event flows (SQS, SNS, EventBridge, streaming).
-  - Solid red: Authentication/authorization flows (Cognito, IdP, IAM integration).
+Data Flows (MINIMAL ARROWS - SIMPLIFIED):
+CRITICAL: Use MINIMAL arrows - only show ESSENTIAL data flows. Too many arrows confuse users.
 
-- Label important arrows with:
-  - Protocol: HTTPS, HTTP, gRPC, MQTT, etc.
-  - Ports: 443, 80, 3306, 5432, etc., when relevant.
-  - Purpose: “API Request”, “File Upload”, “Metrics”, “Logs”, etc.
+MINIMAL ARROW RULES:
+1. ONLY show PRIMARY data flows - skip secondary/tertiary connections
+2. Show ONE arrow per major flow path - don't duplicate arrows for the same connection
+3. Remove arrows for:
+   - Monitoring/logging connections (CloudWatch, CloudTrail, X-Ray) - these clutter the diagram
+   - Security/authentication internal flows (IAM, KMS, Secrets Manager) - show as icons only
+   - Backup/replication flows unless critical to understanding
+   - Internal service-to-service calls within the same tier
+
+ESSENTIAL ARROWS TO SHOW (ONLY THESE):
+1. User → Edge Services (Route53 → CloudFront → ALB/WAF) - ONE arrow chain
+2. Edge → Application Layer (ALB → EKS/EC2/Lambda) - ONE arrow per service
+3. Application → Database (App → RDS/DynamoDB) - ONE arrow per database
+4. Application → Cache (App → ElastiCache) - ONE arrow if used
+5. Database Replication (Primary → Replica) - ONE arrow if multi-AZ
+6. External Integrations (Payment Gateways, Banking APIs → WAF/API Gateway) - ONE arrow per integration
+
+ARROW STYLING (SIMPLIFIED):
+- Use ONE simple arrow style: Solid black or dark gray arrows
+- NO color coding - keep it simple
+- NO labels on arrows unless absolutely critical for understanding
+- Straight lines preferred - avoid complex curved paths
+- Arrow thickness: Medium (2px) - not too thick, not too thin
+
+DO NOT SHOW:
+- Monitoring arrows (CloudWatch, CloudTrail, X-Ray connections)
+- Security service internal flows (IAM, KMS, Secrets Manager connections)
+- Backup/replication arrows (unless critical)
+- Multiple arrows between same two services
+- Arrow labels for obvious connections (e.g., "HTTPS" is obvious)
+- Dotted/dashed arrows (use solid only for simplicity)
 
 ========================================
 LAYOUT & DESIGN (16:9, CLEAN)
 ========================================
 
-Layout (MUST MATCH 16:9):
-- Use full width of the 16:9 canvas.
-- HORIZONTAL ORIENTATION is mandatory:
-  - AWS Cloud fills the canvas.
-  - Region inside AWS Cloud, also spanning most of the width.
-  - VPC inside Region.
-  - AZs side-by-side horizontally within the VPC.
-  - Subnets stacked vertically inside each AZ.
+Layout (MUST MATCH 16:9 LANDSCAPE - LEFT TO RIGHT):
+- Use full width of the 16:9 canvas (3840×2160 or 1920×1080).
+- HORIZONTAL LEFT-TO-RIGHT ORIENTATION is MANDATORY:
+  - AWS Cloud fills the canvas horizontally (wide rectangle spanning full width).
+  - Region inside AWS Cloud, spanning the full width horizontally.
+  - VPC inside Region, spanning most of the width horizontally.
+  - AZs MUST be arranged side-by-side HORIZONTALLY within the VPC (NOT stacked vertically).
+  - Within each AZ, subnets can be stacked vertically, but AZs themselves flow left-to-right.
+  - All major components arranged horizontally: Users (left) → Edge (left-center) → App (center) → Data (right).
+  - The entire diagram reads LEFT → RIGHT, NOT top → bottom.
 
 Grid and Alignment:
 - Align all containers and icons to a consistent grid (e.g., 20px).
@@ -524,8 +562,10 @@ Colors:
 - Region border: Dark or teal as specified, clearly visible.
 - VPC border: Purple (#8C4FFF), 2px solid.
 - AZ border: Light blue (#147EBA), 2px dashed.
-- Subnet backgrounds: subtle tints as specified (green/cyan variants).
+- Subnet borders: Green for public (#7AA116), Cyan for private (#00A4A6).
+- Subnet backgrounds: WHITE (#FFFFFF) or TRANSPARENT - NO colored fills inside boxes.
 - Text color: Dark gray (#2D3436) or black (#000000).
+- CRITICAL: Only borders have colors - NO fill colors inside any container boxes.
 
 Typography:
 - Region / VPC labels: Bold, ~18pt.
@@ -595,13 +635,15 @@ STEP-BY-STEP DIAGRAM CREATION PROCESS:
    - List all monitoring: CloudWatch, CloudTrail, X-Ray
    - List all integrations: SQS, SNS, EventBridge, Step Functions
 
-2. CREATE THE DIAGRAM STRUCTURE (AWS STANDARD SHAPES):
-   - Start with AWS Cloud container (outermost RECTANGULAR box with SHARP CORNERS)
-   - Add Region container inside AWS Cloud (RECTANGULAR with SHARP CORNERS)
-   - Add VPC container inside Region (RECTANGULAR with SHARP CORNERS)
-   - Add 2-3 Availability Zones side-by-side horizontally inside VPC (RECTANGULAR with SHARP CORNERS)
+2. CREATE THE DIAGRAM STRUCTURE (AWS STANDARD SHAPES - HORIZONTAL LAYOUT):
+   - Start with AWS Cloud container (outermost RECTANGULAR box with SHARP CORNERS, spanning full width)
+   - Add Region container inside AWS Cloud (RECTANGULAR with SHARP CORNERS, spanning full width horizontally)
+   - Add VPC container inside Region (RECTANGULAR with SHARP CORNERS, spanning most width horizontally)
+   - Add 2-3 Availability Zones arranged SIDE-BY-SIDE HORIZONTALLY inside VPC (NOT stacked vertically)
+   - Each AZ is a RECTANGULAR box with SHARP CORNERS, placed horizontally next to each other
    - Add subnets (Public, Private App, Private Data) inside each AZ (RECTANGULAR with SHARP CORNERS)
    - ALL boxes MUST have 90-degree corners, NO rounded corners, NO curved edges
+   - CRITICAL: AZs flow LEFT → RIGHT, not top → bottom
 
 3. PLACE AWS SERVICE ICONS (OFFICIAL AWS ICONS):
    - Use OFFICIAL AWS Architecture Icons from AWS Architecture Icons set
@@ -611,18 +653,33 @@ STEP-BY-STEP DIAGRAM CREATION PROCESS:
    - Add descriptive labels under each icon
    - DO NOT put service icons inside rounded boxes - use the official square/rectangular icons directly
 
-4. DRAW CONNECTIONS:
-   - Add directional arrows between services showing data flow
-   - Use different arrow styles for different types of connections (sync/async, request/response)
-   - Label arrows with protocols (HTTPS, gRPC, etc.)
+4. DRAW CONNECTIONS (MINIMAL ARROWS ONLY):
+   - Add ONLY ESSENTIAL arrows showing PRIMARY data flows
+   - Use SIMPLE solid arrows (black or dark gray) - NO color coding
+   - Show ONLY these critical flows:
+     * Users → Edge Services → Application (one main flow path)
+     * Application → Database (one arrow per database)
+     * Application → Cache (if used)
+     * Database replication (if multi-AZ)
+     * External integrations (payment gateways, banking APIs)
+   - DO NOT add arrows for:
+     * Monitoring/logging (CloudWatch, CloudTrail, X-Ray)
+     * Security services (IAM, KMS, Secrets Manager)
+     * Backup/replication (unless critical)
+     * Internal service-to-service calls
+   - Keep arrows simple and minimal - too many arrows confuse users
+   - NO labels on arrows unless absolutely necessary
 
 5. APPLY VISUAL STYLING (AWS STANDARD):
-   - Set canvas to 3840×2160 (16:9 landscape)
+   - Set canvas to 3840×2160 (16:9 landscape, wider than tall)
    - Use white background (#FFFFFF)
-   - Apply proper colors to containers (as specified above)
+   - Apply colored BORDERS to containers (as specified above)
+   - CRITICAL: NO fill colors inside boxes - all container backgrounds must be WHITE (#FFFFFF) or TRANSPARENT
+   - Only borders have colors - boxes are empty/transparent inside
    - Ensure proper spacing and alignment
    - CRITICAL: Set corner-radius = 0 or border-radius = 0 for ALL container boxes
    - Use RECTANGULAR shapes with SHARP 90-degree CORNERS throughout
+   - Arrange components HORIZONTALLY from LEFT to RIGHT (not top to bottom)
    - Match AWS official documentation diagram style
 
 6. SAVE THE DIAGRAM:
@@ -637,28 +694,50 @@ CRITICAL VALIDATION BEFORE SAVING:
 - VERIFY ALL CONTAINER BOXES ARE RECTANGULAR WITH SHARP CORNERS (NO rounded/curved boxes)
 - Verify boxes match AWS official diagram standards
 - Verify official AWS service icons are used (not generic shapes)
+- VERIFY MINIMAL ARROWS: Only essential data flows shown, NO monitoring/logging arrows, NO security service arrows
+- Verify arrows are simple (solid, black/gray) - NO complex color coding or excessive labels
 
 NOW EXECUTE: Use the available diagram generation tools to create this complete AWS-standard architecture diagram and save it to the specified path.
 
 FINAL AWS STANDARDS CHECKLIST:
 ✓ RECTANGULAR containers with SHARP CORNERS (corner-radius = 0)
 ✓ Official AWS Architecture Icons
-✓ AWS standard colors for containers
+✓ Colored borders only - NO fill colors inside boxes (white/transparent backgrounds)
+✓ HORIZONTAL LEFT-TO-RIGHT flow (NOT top-to-bottom)
+✓ Availability Zones arranged side-by-side horizontally
+✓ MINIMAL ARROWS - only essential data flows (Users→Edge→App→Database)
+✓ Simple arrow style (solid, black/gray) - NO color coding or excessive labels
 ✓ Professional, clean layout matching AWS documentation
 ✓ White background
-✓ 16:9 landscape orientation
+✓ 16:9 landscape orientation (wider than tall)
 ✗ NO rounded corners on containers
 ✗ NO curved boxes
+✗ NO colored fills inside container boxes
+✗ NO vertical stacking of major components (AZs must be horizontal)
 ✗ NO generic/custom icons
+✗ NO monitoring/logging arrows (CloudWatch, CloudTrail, X-Ray)
+✗ NO security service arrows (IAM, KMS, Secrets Manager)
+✗ NO excessive arrows - keep it minimal and simple
 """
 
         # Initialize MCP client and agent
-        mcp_client = MCPClient(lambda: stdio_client(
-            StdioServerParameters(
-                command=uvx_path,
-                args=["awslabs.aws-diagram-mcp-server"]
-            )
-        ))
+        # Suppress sarif module warnings by setting environment variable
+        import os
+        original_env = os.environ.copy()
+        # Suppress Python warnings about missing optional modules
+        os.environ['PYTHONWARNINGS'] = 'ignore::UserWarning'
+        
+        try:
+            mcp_client = MCPClient(lambda: stdio_client(
+                StdioServerParameters(
+                    command=uvx_path,
+                    args=["awslabs.aws-diagram-mcp-server"]
+                )
+            ))
+        finally:
+            # Restore original environment
+            os.environ.clear()
+            os.environ.update(original_env)
         
         with mcp_client:
             tools = mcp_client.list_tools_sync()
@@ -678,7 +757,7 @@ FINAL AWS STANDARDS CHECKLIST:
             
             agent = Agent(tools=tools)
             
-            # Generate diagram
+            # Generate diagram (stderr warnings from MCP server are suppressed via environment variable)
             print(f"Sending prompt to agent (length: {len(diagram_prompt)} chars)")
             response = agent(diagram_prompt)
             print(f"Agent response received: {str(response)[:500]}...")
