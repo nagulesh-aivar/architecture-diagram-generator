@@ -14,3 +14,4 @@ ENV/
 uploads/
 outputs/
 generated-diagrams/
+*png*

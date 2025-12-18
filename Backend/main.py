@@ -90,9 +90,6 @@ def generate_diagram_with_strands(summary_text: str, output_path: Path) -> Optio
         from mcp import stdio_client, StdioServerParameters
         from strands import Agent
         from strands.tools.mcp import MCPClient
-        from strands.models.bedrock import BedrockModel
-        import boto3
-        from botocore.config import Config
         
         # Create prompt for diagram generation
         absolute_output_path = output_path.resolve()
@@ -194,99 +191,139 @@ CRITICAL REQUIREMENTS:
 1. COMPREHENSIVE COVERAGE: Include EVERY service, component, and resource mentioned in the architecture summary. Do NOT create a simple 3-5 component diagram. This must be a FULL, DETAILED architecture showing all layers, services, and connections.
 2. CLEAN DESIGN: NO emojis, NO decorative elements, NO clutter. Use simple text labels only.
 3. MULTI-LAYER ARCHITECTURE: Show complete infrastructure with multiple tiers, subnets, availability zones, and all services.
+4. STRUCTURED CONTAINERS: Use properly nested containers following AWS hierarchy:
+   - AWS Cloud (outermost container with label "AWS Cloud")
+   - Region container (inside AWS Cloud, labeled "Region: us-east-1" or similar)
+   - VPC container (inside Region, labeled "VPC: 10.0.0.0/16" or similar)
+   - Availability Zone containers (inside VPC, labeled "Availability Zone-1A", "Availability Zone-1B", etc.)
+   - Subnet containers (inside each AZ, labeled "Public Subnet", "Private Subnet", "Database Subnet")
+   - Auto Scaling Groups (where applicable, containing EC2 instances)
 
 ARCHITECTURE SUMMARY TO DIAGRAM:
 {summary_text}
 
 MANDATORY: Analyze the summary above and identify ALL AWS services, components, and resources mentioned. Create a COMPREHENSIVE diagram that includes EVERYTHING. Do NOT simplify or omit components. This must be a complete, production-ready architecture diagram with all layers visible.
 
-=== DIAGRAM STRUCTURE & HIERARCHY - HORIZONTAL LAYOUT (LEFT TO RIGHT) ===
+=== DIAGRAM STRUCTURE & HIERARCHY - FOLLOW TEMPLATE FORMAT ===
 
-CRITICAL LAYOUT REQUIREMENT: The entire diagram must flow HORIZONTALLY from LEFT to RIGHT, not vertically. All major sections should be arranged in columns from left to right.
+CRITICAL: The diagram MUST use properly nested containers in this exact hierarchy:
+1. AWS Cloud Container (outermost)
+2. Region Container (inside AWS Cloud)
+3. VPC Container (inside Region)
+4. Availability Zone Containers (inside VPC, multiple AZs side by side)
+5. Subnet Containers (inside each AZ)
+6. Auto Scaling Groups (inside subnets where applicable)
+7. Individual Resources (inside appropriate containers)
 
 BACKGROUND: Pure white (#FFFFFF) - the entire diagram background must be white.
 
-1. LEFT COLUMN - External/Edge Services:
-   - Place on the far LEFT side of the diagram
-   - Label: "External/Edge Services" (simple text, NO emojis)
-   - Include: Users/End Users, CloudFront, Route 53, AWS WAF, API Gateway
-   - Use official AWS service icons (64x64px)
-   - Background: Pure white (#FFFFFF)
-   - Border: Create a CLEAR BOX with dark gray border (2px solid, #666666)
-   - Layout: Stack services vertically within the box
-   - Labels: Service name below icon, 11pt font, simple text only
-   - Box must have visible border and clear label at the top
+CONTAINER HIERARCHY (FROM TEMPLATE):
 
-2. SECOND COLUMN - AWS Region Container (CRITICAL: MUST HAVE CLEAR BOX):
-   - Place to the RIGHT of External/Edge Services
-   - Create a LARGE, CLEARLY DEFINED BOX with visible border
-   - Border: Dark gray (#333333), 3px solid border - MUST be clearly visible
-   - Background: Pure white (#FFFFFF)
-   - Label at top of box: "AWS Region: [region-name]" (e.g., "AWS Region: us-east-1")
-   - Label must be bold, 16pt, dark gray (#2D3436), centered at top of box
-   - This box contains the VPC and all regional services
+1. AWS CLOUD CONTAINER (OUTERMOST):
+   - Label: "AWS Cloud" at top-left
+   - Border: Dark gray (#232F3E), 2px solid - MUST be clearly visible
+   - Background: White (#FFFFFF)
+   - Contains the entire architecture
+   - This is the outermost container
 
-3. INSIDE AWS REGION BOX - VPC Container (CRITICAL: MUST HAVE CLEAR BOX):
-   - Create a SECOND BOX inside the AWS Region box
-   - Border: Medium gray (#666666), 2px solid border - MUST be clearly visible
-   - Background: Very light gray (#F9F9F9) - subtle tint to distinguish from Region box
-   - Label at top: "VPC: [vpc-name or CIDR]" (e.g., "VPC: 10.0.0.0/16")
-   - Label must be bold, 14pt, dark gray (#2D3436)
-   - VPC box should take up most of the Region box space
-   - Show CIDR block notation if mentioned in summary
+2. REGION CONTAINER (INSIDE AWS CLOUD):
+   - Label: "Region" or "Region: us-east-1" at top-left
+   - Border: Teal/Blue (#00A4A6), 2px dashed - MUST be clearly visible
+   - Background: White (#FFFFFF)
+   - Inside the AWS Cloud container
+   - Contains VPC and global services
 
-4. INSIDE VPC BOX - Multi-AZ Architecture (CRITICAL: MUST HAVE CLEAR BOXES):
-   - Draw exactly TWO Availability Zones side by side (HORIZONTALLY, equal width)
-   - Each AZ MUST be in its own CLEARLY DEFINED BOX
-   - AZ Box Border: Light gray (#CCCCCC), 2px dashed border - MUST be clearly visible
-   - AZ Box Background: Pure white (#FFFFFF)
-   - Label each AZ box clearly at the top: "Availability Zone 1 (us-east-1a)" and "Availability Zone 2 (us-east-1b)" - NO emojis
-   - Labels must be bold, 12pt, dark gray (#2D3436)
-   - AZ boxes should be arranged HORIZONTALLY (side by side) within the VPC
-   - In EACH Availability Zone box, create THREE distinct subnet tiers (stacked VERTICALLY within each AZ box):
+3. VPC CONTAINER (INSIDE REGION):
+   - Label: "VPC" or "VPC: 10.0.0.0/16" at top-left
+   - Border: Purple (#8C4FFF), 2px solid - MUST be clearly visible
+   - Background: White (#FFFFFF) or very light tint
+   - Inside the Region container
+   - Contains all VPC resources (AZs, subnets, etc.)
 
-   A. PUBLIC SUBNET (Top tier in each AZ):
-      - Label: "Public Subnet (10.0.1.0/24)" - simple text, NO emojis
-      - Place: Internet Gateway (IGW) - one per VPC, connected to VPC boundary
-      - Place: NAT Gateway(s) - one per AZ in public subnet, clearly labeled
-      - Place: Bastion Hosts (if mentioned) - show as EC2 icon
-      - Place: Load Balancer nodes (if ALB/NLB is used)
-      - Background: Very light green (#E8F5E9) - 10% opacity, subtle tint
-      - Border: Green (#4CAF50), 2px solid line - MUST be clearly visible
-      - Spacing: 20px padding inside subnet
+4. AVAILABILITY ZONE CONTAINERS (INSIDE VPC):
+   - Create MULTIPLE AZ containers (at least 2-3 AZs)
+   - Label each: "Availability Zone-1A", "Availability Zone-1B", "Availability Zone-1C"
+   - Border: Light blue (#147EBA), 2px dashed - MUST be clearly visible
+   - Background: White (#FFFFFF)
+   - Arranged SIDE BY SIDE (horizontally) within the VPC
+   - Each AZ contains subnets
 
-   B. PRIVATE APPLICATION SUBNET (Middle tier in each AZ):
-      - Label: "Private Subnet - Application (10.0.11.0/24)" - simple text, NO emojis
-      - Place: EC2 instances (show instance types if specified, e.g., "t3.medium")
-      - Place: ECS/EKS clusters and nodes (show as container icons)
-      - Place: Lambda functions (if applicable) - show as Lambda icons
-      - Place: Auto Scaling Groups (show ASG icon if mentioned)
-      - Place: Application Load Balancer (if internal)
-      - Background: Very light yellow (#FFF9C4) - 10% opacity, subtle tint
-      - Border: Orange (#FF9800), 2px solid line - MUST be clearly visible
-      - Show Security Groups as subtle boxes around resource groups (light gray border, 1px)
-      - Spacing: 20px padding inside subnet, 20px between components
+5. SUBNET CONTAINERS (INSIDE EACH AZ):
+   Create THREE types of subnets in EACH Availability Zone:
 
-   C. DATABASE/STORAGE SUBNET (Bottom tier in each AZ):
-      - Label: "Private Subnet - Database (10.0.21.0/24)" - simple text, NO emojis
-      - Place: RDS instances (show Multi-AZ if mentioned, label primary/standby)
-      - Place: DynamoDB (show as global service or regional)
-      - Place: ElastiCache/Redis clusters (show primary and replica)
-      - Place: DocumentDB, Neptune, or other databases
-      - Place: EFS or FSx file systems
-      - Background: Very light orange (#FFE0B2) - 10% opacity, subtle tint
-      - Border: Red (#F44336), 2px solid line - MUST be clearly visible
-      - Show Database Security Groups as subtle boxes
-      - Spacing: 20px padding inside subnet, 20px between database components
+   A. PUBLIC SUBNET:
+      - Label: "Public subnet" at top
+      - Border: Green (#7AA116), 2px solid - MUST be clearly visible
+      - Background: Very light green (#F2F6E8)
+      - Contains: NAT Gateway, Elastic Network Interface
+      - Place in EACH AZ
 
-5. RIGHT COLUMN - Additional Services (Storage, Event Platform, ML Platform, etc.):
-   - Place to the RIGHT of the AWS Region box
-   - Group related services in CLEARLY DEFINED BOXES
-   - Each service group (Storage, Events, ML, etc.) should have its own box
-   - Box Border: Medium gray (#666666), 2px solid border - MUST be clearly visible
-   - Box Background: Pure white (#FFFFFF)
-   - Label each box at the top (e.g., "Storage Services", "Event Platform", "ML Platform")
-   - Labels must be bold, 14pt, dark gray (#2D3436)
+   B. PRIVATE APPLICATION SUBNET:
+      - Label: "Private subnet" at top
+      - Border: Cyan (#00A4A6), 2px solid - MUST be clearly visible
+      - Background: Very light cyan (#E6F6F7)
+      - Contains: ECS containers, Auto Scaling Groups, EC2 instances
+      - Place in EACH AZ
+
+   C. DATABASE/STORAGE SUBNET:
+      - Label: "Private subnet" (for databases) at top
+      - Border: Cyan (#00A4A6), 2px solid - MUST be clearly visible
+      - Background: Very light cyan (#E6F6F7)
+      - Contains: RDS, DocumentDB, ElastiCache, etc.
+      - Place in EACH AZ
+
+6. AUTO SCALING GROUPS (INSIDE SUBNETS):
+   - Label: "Auto Scaling Group" or service-specific name
+   - Border: Orange (#D86613), 2px dashed - MUST be clearly visible
+   - Background: Transparent or white
+   - Contains: Multiple EC2 instances or containers
+   - Show vertically within the subnet
+   - Label with service name (e.g., "FrontEnd", "Backend", "VoiceAgent")
+
+7. INDIVIDUAL RESOURCES:
+   Place specific AWS services inside appropriate containers:
+   - EC2 instances (container icons in orange #ED7100)
+   - ECS clusters and tasks
+   - Lambda functions
+   - Load Balancers (outside VPC, connected to public subnets)
+   - Internet Gateway (connected to VPC)
+   - NAT Gateways (in public subnets)
+   - Databases (in database subnets, show cluster relationships)
+   - Storage services
+
+8. GLOBAL SERVICES (OUTSIDE VPC, INSIDE REGION):
+   - Place at the top of the Region container
+   - Include: IAM, CloudTrail, CloudWatch, Config, GuardDuty, Security Hub
+   - Arrange horizontally in a row
+   - Each with official AWS icon and label
+
+9. EXTERNAL SERVICES (OUTSIDE AWS CLOUD):
+   - Users/Admins (user icons)
+   - External integrations (LiveKit, Deepgram, QdrantDB, etc.)
+   - Place on the left or bottom of the diagram
+   - Connect to appropriate AWS services with arrows
+
+10. CONNECTIVITY:
+   - Internet Gateway: Connect to VPC, then to public subnets
+   - NAT Gateway: One per AZ in public subnet
+   - Load Balancers: Place outside VPC but connected to public subnets via ENI
+   - Show all connections with arrows
+   - Label connection types (HTTPS, gRPC, etc.)
+
+11. RESOURCE GROUPING EXAMPLES (FROM TEMPLATE):
+   - ECS Cluster: Dashed orange border container with multiple ECS task containers inside
+   - DocumentDB Cluster: Dashed blue border with multiple DB instances across AZs
+   - Auto Scaling Group: Dashed orange border with multiple EC2/container instances
+   - Show replication arrows between database instances in different AZs
+
+CRITICAL STRUCTURE RULES:
+1. Every container MUST have a clearly visible border (minimum 2px)
+2. Every container MUST have a label at the top-left
+3. Containers must be properly nested (no overlapping at same level)
+4. Use the exact border colors and styles specified above
+5. Arrange AZs horizontally (side by side)
+6. Arrange subnets vertically within each AZ
+7. Show proper hierarchy: Cloud > Region > VPC > AZ > Subnet > Resources
 
 === NETWORKING & CONNECTIVITY ===
 
@@ -545,48 +582,10 @@ Generate a comprehensive, detailed, clean, professional, enterprise-grade diagra
         
         with mcp_client:
             tools = mcp_client.list_tools_sync()
+            agent = Agent(tools=tools)
             
-            # Configure Bedrock client with increased timeouts
-            bedrock_config = Config(
-                read_timeout=600,  # 10 minutes for long-running diagram generation
-                connect_timeout=60,  # 1 minute connection timeout
-                retries={'max_attempts': 3, 'mode': 'adaptive'}
-            )
-            bedrock_client = boto3.client(
-                'bedrock-runtime',
-                region_name='us-east-1',
-                config=bedrock_config
-            )
-            
-            # Create Bedrock model with timeout configuration
-            model = BedrockModel(
-                model_id='anthropic.claude-3-sonnet-20240229-v1:0',
-                client=bedrock_client
-            )
-            
-            # Create agent with model and tools
-            agent = Agent(
-                model=model,
-                tools=tools,
-                max_iterations=10  # Limit iterations to prevent infinite loops
-            )
-            
-            # Generate diagram with timeout handling
-            try:
-                print("Starting diagram generation (this may take several minutes for complex diagrams)...")
-                print("Timeout set to 10 minutes. Please be patient...")
-                # Call the agent - it will use the configured model with increased timeouts
-                response = agent(diagram_prompt)
-                print(f"Agent response received: {str(response)[:200]}...")
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "timeout" in error_msg or "timed out" in error_msg or "read timed out" in error_msg:
-                    print(f"Diagram generation timed out: {str(e)}")
-                    print("This may happen with very complex diagrams. The summary is still available.")
-                    print("Tip: Try simplifying the architecture summary or using a faster model.")
-                    return None
-                print(f"Diagram generation error: {str(e)}")
-                raise
+            # Generate diagram
+            response = agent(diagram_prompt)
             print(f"Agent response received: {str(response)[:200]}...")
             
             # Check if diagram was generated at the expected path
@@ -731,10 +730,12 @@ async def generate_architecture_diagram(
     request_id = str(uuid.uuid4())
     temp_pdf_path = UPLOAD_DIR / f"{request_id}_{file.filename}"
     
-    # Use generated-diagrams subdirectory for better organization
+    # Use generated-diagrams subdirectory with timestamp for better organization
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
     generated_diagrams_dir.mkdir(exist_ok=True)
-    output_diagram_path = generated_diagrams_dir / f"{request_id}_diagram.png"
+    output_diagram_path = generated_diagrams_dir / f"{timestamp}_{request_id}_diagram.png"
     
     try:
         # Save uploaded PDF

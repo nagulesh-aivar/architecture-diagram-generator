@@ -204,7 +204,7 @@ def extract_pdf(
 def summarize_with_bedrock(
     text: str,
     aws_region: str = 'us-east-1',
-    model_id: str = 'anthropic.claude-3-sonnet-20240229-v1:0',
+    model_id: str = 'anthropic.claude-3-5-sonnet-20241022-v2:0',
     summary_type: str = 'architecture'
 ) -> Dict[str, Any]:
     """
@@ -344,8 +344,7 @@ Detailed Summary:"""
             alternative_models = [
                 'anthropic.claude-3-sonnet-20240229-v1:0',
                 'anthropic.claude-3-haiku-20240307-v1:0',
-                'anthropic.claude-3-sonnet-20240229-v1:0:200k',
-                'anthropic.claude-3-sonnet-20240229-v1:0:28k'
+                'anthropic.claude-v2:1'
             ]
             raise Exception(
                 f"Model {model_id} may not be available in region {aws_region}.\n"
