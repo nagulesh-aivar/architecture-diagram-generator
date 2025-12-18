@@ -1,0 +1,19 @@
+# FastAPI and server dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# PDF Extraction Libraries
+PyPDF2>=3.0.0
+pdfplumber>=0.11.0  # Latest version for better extraction
+
+# AWS Bedrock Support
+boto3>=1.28.0
+
+# Diagram generation dependencies
+python-dotenv>=1.0.0
+mcp>=0.1.0
+strands-agents
+jschema-to-python>=1.2.3  # Required for sarif loader in strands-agents
+
+

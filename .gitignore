@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+uploads/
+outputs/
+*.pdf
+.env
+venv/
+env/
+ENV/
+.venv
+uploads/
+outputs/
+generated-diagrams/
