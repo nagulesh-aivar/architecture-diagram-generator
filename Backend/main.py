@@ -187,17 +187,50 @@ def generate_diagram_with_strands(summary_text: str, output_path: Path) -> Optio
 
         diagram_prompt = f"""YOU MUST CREATE A COMPLETE AWS ARCHITECTURE DIAGRAM FOLLOWING AWS OFFICIAL STANDARDS!
 
+═══════════════════════════════════════════════════════════════════════════════
+🚨 CRITICAL: NO FILL COLORS - PURE WHITE BACKGROUNDS ONLY 🚨
+═══════════════════════════════════════════════════════════════════════════════
+
+MANDATORY: ALL container boxes MUST have PURE WHITE (#FFFFFF) backgrounds - NO colored fills!
+
+HOW TO SET FILL COLORS CORRECTLY:
+When creating each container box in the diagram tool, you MUST:
+1. Set the "fill" or "background" property to #FFFFFF (white)
+2. Set the "fillColor" property to #FFFFFF (white)
+3. Set the "backgroundColor" property to #FFFFFF (white)
+4. If the tool has a "style" property, set fill: #FFFFFF
+5. DO NOT use any default colors - explicitly set to white
+
+FORBIDDEN COLORS - DO NOT USE THESE:
+✗ NO light green (#F2F6E8) in Public Subnets - use #FFFFFF instead
+✗ NO light cyan (#E6F6F7) in Private Subnets - use #FFFFFF instead
+✗ NO light blue fills in Availability Zones - use #FFFFFF instead
+✗ NO colored backgrounds of ANY kind inside container boxes
+✗ NO tinted colors - ONLY pure white (#FFFFFF)
+
+REQUIRED SETTINGS:
+✓ ONLY borders have colors (green, cyan, purple, etc.)
+✓ ALL container backgrounds MUST be pure WHITE (#FFFFFF) - set explicitly
+✓ Set fill color to #FFFFFF for EVERY container box
+✓ Set background color to #FFFFFF for EVERY container box
+✓ Override any default fill colors to white
+
+This is NON-NEGOTIABLE. If you add ANY colored fill inside boxes, the diagram is INCORRECT and will be rejected.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 CRITICAL AWS STANDARD REQUIREMENTS:
 ✓ Use OFFICIAL AWS Architecture Icons (2023+ icon set)
 ✓ Use RECTANGULAR boxes with SHARP CORNERS (NO rounded/curved boxes)
+✓ PURE WHITE backgrounds ONLY - NO fill colors inside any container boxes
 ✓ MINIMAL ARROWS - only show essential data flows (Users→Edge→App→Database)
 ✓ Simple arrow style (solid, black/gray) - NO color coding, NO excessive labels
 ✓ Follow AWS Well-Architected Framework diagram conventions
-✓ Use AWS standard colors and styling
 ✓ Professional enterprise-grade appearance matching AWS documentation
 
 ✗ DO NOT use rounded/curved boxes
 ✗ DO NOT use custom icon styles
+✗ DO NOT add colored fills inside container boxes - ONLY pure white (#FFFFFF)
 ✗ DO NOT deviate from AWS standard diagram conventions
 ✗ DO NOT create flowchart-style diagrams
 ✗ DO NOT add excessive arrows - keep it minimal and simple
@@ -209,12 +242,34 @@ IMMEDIATE TASK: Use the AWS diagram MCP tools available to you to generate a FUL
 ✓ MINIMAL arrows - only essential flows (Users→Edge→App→Database), simple solid style
 ✓ NO arrows for monitoring/logging/security services
 ✓ Professional labels matching AWS documentation style
-✓ Horizontal 16:9 layout (3840×2160 pixels)
+✓ Horizontal 16:9 layout (3840×2160 pixels at 300 DPI for maximum clarity)
+✓ HIGH QUALITY export (300 DPI, no compression, 24-bit color, anti-aliasing enabled)
 
 STEP 1: ANALYZE the architecture summary below and identify ALL AWS services, components, and data flows.
-STEP 2: USE the AWS diagram MCP tool to GENERATE a complete visual diagram following AWS official standards.
-STEP 3: ENSURE all boxes are RECTANGULAR with SHARP CORNERS (not rounded).
-STEP 4: SAVE the diagram as a PNG to: {absolute_output_path}
+STEP 2: SET HIGH QUALITY CANVAS SETTINGS:
+   - Set canvas size to 3840×2160 pixels (width × height)
+   - Set resolution/DPI to 300 DPI (dots per inch) for maximum clarity
+   - Enable anti-aliasing for smooth edges
+   - Set color depth to 24-bit or 32-bit (full color)
+STEP 3: USE the AWS diagram MCP tool to GENERATE a complete visual diagram following AWS official standards.
+STEP 4: ENSURE all boxes are RECTANGULAR with SHARP CORNERS (not rounded).
+STEP 5: CRITICAL - SET ALL BOX FILL COLORS TO WHITE:
+   - When creating containers, explicitly set fill color to #FFFFFF (white)
+   - For AWS Cloud container: fill = #FFFFFF
+   - For Region container: fill = #FFFFFF
+   - For VPC container: fill = #FFFFFF
+   - For Availability Zone containers: fill = #FFFFFF
+   - For Public Subnet containers: fill = #FFFFFF (NOT #F2F6E8)
+   - For Private Subnet containers: fill = #FFFFFF (NOT #E6F6F7)
+   - If the tool has a "background color" or "fill color" property, set it to #FFFFFF
+   - If the tool defaults to colored fills, OVERRIDE it to white (#FFFFFF)
+STEP 6: EXPORT WITH HIGH QUALITY SETTINGS:
+   - Set PNG export quality to 100% or maximum
+   - Set compression to NONE or LOWEST (do NOT use high compression)
+   - Ensure 300 DPI resolution is maintained in export
+   - Enable anti-aliasing for crisp edges
+   - Use lossless PNG format (not lossy)
+STEP 7: SAVE the diagram as a HIGH-QUALITY PNG to: {absolute_output_path}
 
 You are an expert AWS Solutions Architect creating a COMPREHENSIVE, DETAILED, ENTERPRISE‑GRADE architecture diagram using OFFICIAL AWS ARCHITECTURE DIAGRAM STANDARDS. You MUST follow AWS official diagramming conventions exactly as used in AWS documentation, whitepapers, and Well-Architected Framework materials.
 
@@ -231,22 +286,39 @@ You MUST use the available AWS diagram generation tools to create a diagram that
    - ALL container boxes MUST be RECTANGULAR with SHARP 90-degree CORNERS
    - NO rounded corners, NO curved boxes, NO ellipses, NO circles for containers
    - Box types needed:
-     * AWS Cloud: Large rectangular box, dark border (#232F3E), white fill
-     * Region: Rectangular box, dashed border, white fill
-     * VPC: Rectangular box, solid purple border (#8C4FFF), white fill
-     * Availability Zones: Rectangular boxes, dashed light blue border
-     * Subnets: Rectangular boxes, solid borders (green for public, cyan for private), light tinted fills
-     * Security Groups: Optional thin rectangular overlays
+     * AWS Cloud: Large rectangular box, dark border (#232F3E), PURE WHITE fill (#FFFFFF)
+     * Region: Rectangular box, dashed border, PURE WHITE fill (#FFFFFF)
+     * VPC: Rectangular box, solid purple border (#8C4FFF), PURE WHITE fill (#FFFFFF)
+     * Availability Zones: Rectangular boxes, dashed light blue border, PURE WHITE fill (#FFFFFF)
+     * Subnets: Rectangular boxes, solid borders (green for public, cyan for private), PURE WHITE fill (#FFFFFF) - NO tinted fills
+     * Security Groups: Optional thin rectangular overlays, PURE WHITE fill (#FFFFFF)
    - All boxes must have SHARP CORNERS (corner radius = 0)
+   - CRITICAL: Set fill color to #FFFFFF (white) for EVERY box - NO exceptions
 
 3. AWS STANDARD COLORS:
-   - Background: Pure white (#FFFFFF)
+   CRITICAL: NO FILL COLORS - WHITE BACKGROUNDS ONLY!
+   
+   - Canvas Background: Pure white (#FFFFFF)
    - AWS Cloud border: Dark gray (#232F3E), 2-3px solid
+   - AWS Cloud background: MUST be pure WHITE (#FFFFFF) - NO colored fill
    - Region border: Teal (#00A4A6) or blue, 2px dashed
+   - Region background: MUST be pure WHITE (#FFFFFF) - NO colored fill
    - VPC border: Purple (#8C4FFF), 2-3px solid
+   - VPC background: MUST be pure WHITE (#FFFFFF) - NO colored fill
    - AZ border: Light blue (#147EBA), 2px dashed
-   - Public Subnet: Green border (#7AA116), light green fill (#F2F6E8)
-   - Private Subnet: Cyan border (#00A4A6), light cyan fill (#E6F6F7)
+   - AZ background: MUST be pure WHITE (#FFFFFF) - NO light blue fill, NO colored fill
+   - Public Subnet border: Green (#7AA116), 2px solid
+   - Public Subnet background: MUST be pure WHITE (#FFFFFF) - NO light green fill (#F2F6E8), NO colored fill
+   - Private Subnet border: Cyan (#00A4A6), 2px solid
+   - Private Subnet background: MUST be pure WHITE (#FFFFFF) - NO light cyan fill (#E6F6F7), NO colored fill
+   
+   CRITICAL RULES:
+   - ALL container boxes MUST have background color set to #FFFFFF (white)
+   - DO NOT use #F2F6E8 (light green) for Public Subnets
+   - DO NOT use #E6F6F7 (light cyan) for Private Subnets
+   - DO NOT use any tinted colors - ONLY pure white (#FFFFFF)
+   - ONLY borders have colors - NO fill colors inside any container boxes
+   - If you see ANY colored background inside boxes, it's INCORRECT
 
 4. PROFESSIONAL AWS STYLING:
    - Typography: Clean sans-serif (Arial, Amazon Ember, Helvetica)
@@ -270,14 +342,17 @@ ARCHITECTURE SUMMARY TO DIAGRAM:
 ABSOLUTE STRUCTURAL REQUIREMENTS
 ========================================
 
-1. MANDATORY LANDSCAPE ORIENTATION - 16:9 HORIZONTAL LAYOUT
-   CRITICAL: The diagram MUST be in LANDSCAPE orientation (WIDE, NOT TALL).
+1. MANDATORY LANDSCAPE ORIENTATION - 16:9 HORIZONTAL LAYOUT (HIGH QUALITY)
+   CRITICAL: The diagram MUST be in LANDSCAPE orientation (WIDE, NOT TALL) with HIGH RESOLUTION.
    
-   - CANVAS SIZE: Use exactly 3840x2160 pixels (width x height) OR 1920x1080 pixels
+   - CANVAS SIZE: Use exactly 3840×2160 pixels (width × height) - PREFERRED for maximum clarity
+   - ALTERNATIVE: 1920×1080 pixels (if 4K is not available)
+   - RESOLUTION/DPI: Set to 300 DPI (dots per inch) for print-quality clarity
    - ASPECT RATIO: EXACTLY 16:9 (landscape/horizontal)
-   - WIDTH MUST BE GREATER THAN HEIGHT (e.g., 3840 WIDTH  2160 HEIGHT)
+   - WIDTH MUST BE GREATER THAN HEIGHT (e.g., 3840 WIDTH × 2160 HEIGHT)
    - THIS IS LANDSCAPE: Width=3840, Height=2160 ✓
    - THIS IS WRONG PORTRAIT: Width=2160, Height=3840 ✗
+   - QUALITY SETTINGS: Maximum quality, no compression, 24-bit or 32-bit color depth
    
    FLOW DIRECTION: LEFT TO RIGHT
    - Data flows HORIZONTALLY from LEFT to RIGHT across the diagram
@@ -368,6 +443,21 @@ CONTAINER DETAILS & COLORS (AWS STANDARD)
 CRITICAL: ALL containers MUST use RECTANGULAR shapes with SHARP 90-degree CORNERS.
 NO rounded corners, NO curved edges, NO ellipses. This is AWS standard.
 
+MANDATORY BOXES - ALL CONTAINERS MUST BE DRAWN:
+- AWS Cloud container (OUTERMOST) - MANDATORY, must be drawn
+- Region container (INSIDE AWS Cloud) - MANDATORY, must be drawn
+- VPC container (INSIDE Region) - MANDATORY, must be drawn
+- Availability Zone containers (INSIDE VPC) - MANDATORY, at least 2-3 AZs must be drawn
+- Subnet containers (INSIDE EACH AZ) - MANDATORY, must be drawn for each subnet
+- ALL boxes are REQUIRED - do not skip any container level
+
+NO FILL COLORS - CRITICAL REQUIREMENT:
+- ALL container backgrounds MUST be WHITE (#FFFFFF) or TRANSPARENT
+- ONLY borders have colors - NO fill colors inside any container boxes
+- Public Subnets: Green border, WHITE background (NO light green fill)
+- Private Subnets: Cyan border, WHITE background (NO light cyan fill)
+- This is non-negotiable - boxes must be empty/transparent inside
+
 AWS Cloud Container (OUTERMOST)
 - Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
 - Label: "AWS Cloud" at top-left
@@ -401,27 +491,35 @@ Availability Zone Containers (INSIDE VPC)
 - MUST be rectangular, not rounded
 
 Subnet Containers (INSIDE EACH AZ)
+CRITICAL: ALL subnets MUST have PURE WHITE (#FFFFFF) backgrounds - NO colored fills!
+
 - Shape: RECTANGLES with SHARP CORNERS (corner radius = 0)
 - Public Subnet:
   - Label: "Public Subnet"
   - Border: Green (#7AA116), 2px solid
-  - Background: White (#FFFFFF) or transparent - NO colored fill
+  - Background: MUST be pure WHITE (#FFFFFF) - NO light green fill, NO colored fill of any kind
+  - Fill color: #FFFFFF (white) - set explicitly, do NOT use any tinted colors
   - Contains NAT Gateway, IGW attachments, public ENIs, and public-facing load balancers if applicable
   - MUST be rectangular, not rounded
+  - CRITICAL: Background color MUST be #FFFFFF - if you see any green tint, it's WRONG
 
 - Private Application Subnet:
   - Label: "Private Subnet (Application)" or similar
   - Border: Cyan (#00A4A6), 2px solid
-  - Background: White (#FFFFFF) or transparent - NO colored fill
+  - Background: MUST be pure WHITE (#FFFFFF) - NO light cyan fill, NO colored fill of any kind
+  - Fill color: #FFFFFF (white) - set explicitly, do NOT use any tinted colors
   - Contains ECS services, EC2 application servers, ASGs, etc.
   - MUST be rectangular, not rounded
+  - CRITICAL: Background color MUST be #FFFFFF - if you see any cyan tint, it's WRONG
 
 - Private Database/Storage Subnet:
   - Label: "Private Subnet (Database/Storage)" or similar
   - Border: Cyan (#00A4A6), 2px solid
-  - Background: White (#FFFFFF) or transparent - NO colored fill
+  - Background: MUST be pure WHITE (#FFFFFF) - NO light cyan fill, NO colored fill of any kind
+  - Fill color: #FFFFFF (white) - set explicitly, do NOT use any tinted colors
   - Contains RDS, Aurora, DocumentDB, ElastiCache, and other DB/storage resources
   - MUST be rectangular, not rounded
+  - CRITICAL: Background color MUST be #FFFFFF - if you see any cyan tint, it's WRONG
 
 Auto Scaling Groups (INSIDE Subnets where applicable)
 - Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
@@ -453,9 +551,19 @@ CRITICAL STYLING REMINDER:
 - This is non-negotiable for AWS standard diagrams
 - If the diagram tool defaults to rounded corners, you MUST override it to use sharp corners
 - Set border-radius = 0 or corner-radius = 0 for all container shapes
-- NO FILL COLORS: All container backgrounds MUST be white (#FFFFFF) or transparent
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL: NO FILL COLORS - WHITE BACKGROUNDS ONLY
+═══════════════════════════════════════════════════════════════════════════════
+- ALL container backgrounds MUST be pure WHITE (#FFFFFF) - NO exceptions
+- DO NOT use #F2F6E8 (light green) for Public Subnets
+- DO NOT use #E6F6F7 (light cyan) for Private Subnets
+- DO NOT use ANY tinted colors - ONLY pure white (#FFFFFF)
+- Set fill color explicitly to #FFFFFF for ALL containers
 - Only borders should have colors - NO colored fills inside boxes
-- Boxes should be empty/transparent with only colored borders visible
+- Boxes should be EMPTY WHITE with only colored borders visible
+- If the diagram tool defaults to colored fills, you MUST override it to white (#FFFFFF)
+- This is ABSOLUTELY MANDATORY - colored fills make the diagram INCORRECT
 
 ========================================
 NETWORKING & DATA FLOWS
@@ -576,21 +684,28 @@ Typography:
 - NO emojis, NO decorative fonts, NO special characters in labels.
 
 ========================================
-OUTPUT SPECIFICATIONS (MANDATORY)
+OUTPUT SPECIFICATIONS (MANDATORY - HIGH QUALITY)
 ========================================
 
-- Output: ONE high‑resolution PNG image file ONLY.
+- Output: ONE HIGH-RESOLUTION PNG image file ONLY with MAXIMUM CLARITY.
 - CRITICAL ASPECT RATIO: EXACTLY 16:9 LANDSCAPE (HORIZONTAL, WIDE format)
   * WIDTH > HEIGHT (e.g., 3840 pixels wide × 2160 pixels high)
   * NOT 9:16 portrait (that would be 2160 wide × 3840 high) ✗
   * MUST BE 16:9 landscape (3840 wide × 2160 high) ✓
 - Valid landscape resolutions:
-  * PREFERRED: 3840×2160 (width × height)
-  * ACCEPTABLE: 1920×1080 (width × height)
-  * ACCEPTABLE: 2560×1440 (width × height)
+  * PREFERRED: 3840×2160 pixels (width × height) at 300 DPI
+  * ACCEPTABLE: 1920×1080 pixels (width × height) at 300 DPI
+  * ACCEPTABLE: 2560×1440 pixels (width × height) at 300 DPI
 - INVALID portrait resolutions (DO NOT USE):
   * 2160×3840 ✗ (this is portrait 9:16, WRONG)
   * 1080×1920 ✗ (this is portrait 9:16, WRONG)
+- QUALITY SETTINGS (CRITICAL FOR CLARITY):
+  * Resolution/DPI: 300 DPI (dots per inch) - MANDATORY for sharp, clear images
+  * Compression: NONE or LOWEST - do NOT use high compression (it reduces clarity)
+  * Color depth: 24-bit or 32-bit (full color, not 8-bit)
+  * Anti-aliasing: ENABLED (for smooth, crisp edges)
+  * Export quality: 100% or maximum quality setting
+  * PNG format: Use lossless PNG (not lossy compression)
 - Background: Pure white (#FFFFFF).
 - File format: PNG (valid image file, not code or text).
 - Save to EXACT path: {absolute_output_path}
@@ -599,6 +714,7 @@ OUTPUT SPECIFICATIONS (MANDATORY)
   - COMPREHENSIVE (all elements from {summary_text}).
   - PRODUCTION-READY (suitable for senior stakeholders and documentation).
   - HORIZONTAL (landscape, wider than tall, flows LEFT to RIGHT).
+  - HIGH QUALITY (300 DPI, no compression, maximum clarity).
 
 DO NOT:
 - Produce DOT, Mermaid, PlantUML, or any text-based diagram syntax.
@@ -637,13 +753,29 @@ STEP-BY-STEP DIAGRAM CREATION PROCESS:
 
 2. CREATE THE DIAGRAM STRUCTURE (AWS STANDARD SHAPES - HORIZONTAL LAYOUT):
    - Start with AWS Cloud container (outermost RECTANGULAR box with SHARP CORNERS, spanning full width)
+     * Set border color: #232F3E (dark gray)
+     * Set fill color: #FFFFFF (white) - EXPLICITLY set, do NOT use default
+     * Set background color: #FFFFFF (white)
    - Add Region container inside AWS Cloud (RECTANGULAR with SHARP CORNERS, spanning full width horizontally)
+     * Set border color: #00A4A6 (teal), dashed style
+     * Set fill color: #FFFFFF (white) - EXPLICITLY set
+     * Set background color: #FFFFFF (white)
    - Add VPC container inside Region (RECTANGULAR with SHARP CORNERS, spanning most width horizontally)
+     * Set border color: #8C4FFF (purple)
+     * Set fill color: #FFFFFF (white) - EXPLICITLY set
+     * Set background color: #FFFFFF (white)
    - Add 2-3 Availability Zones arranged SIDE-BY-SIDE HORIZONTALLY inside VPC (NOT stacked vertically)
-   - Each AZ is a RECTANGULAR box with SHARP CORNERS, placed horizontally next to each other
+     * Each AZ is a RECTANGULAR box with SHARP CORNERS, placed horizontally next to each other
+     * Set border color: #147EBA (light blue), dashed style
+     * Set fill color: #FFFFFF (white) - EXPLICITLY set, NOT light blue
+     * Set background color: #FFFFFF (white)
    - Add subnets (Public, Private App, Private Data) inside each AZ (RECTANGULAR with SHARP CORNERS)
+     * Public Subnet: border = #7AA116 (green), fill = #FFFFFF (white) - NOT #F2F6E8
+     * Private Subnet: border = #00A4A6 (cyan), fill = #FFFFFF (white) - NOT #E6F6F7
+     * Set fill color EXPLICITLY to #FFFFFF for EVERY subnet - do NOT use tinted colors
    - ALL boxes MUST have 90-degree corners, NO rounded corners, NO curved edges
    - CRITICAL: AZs flow LEFT → RIGHT, not top → bottom
+   - CRITICAL: For EVERY box you create, explicitly set fill/background to #FFFFFF (white)
 
 3. PLACE AWS SERVICE ICONS (OFFICIAL AWS ICONS):
    - Use OFFICIAL AWS Architecture Icons from AWS Architecture Icons set
@@ -670,39 +802,94 @@ STEP-BY-STEP DIAGRAM CREATION PROCESS:
    - Keep arrows simple and minimal - too many arrows confuse users
    - NO labels on arrows unless absolutely necessary
 
-5. APPLY VISUAL STYLING (AWS STANDARD):
-   - Set canvas to 3840×2160 (16:9 landscape, wider than tall)
+5. APPLY VISUAL STYLING (AWS STANDARD - HIGH QUALITY):
+   - Set canvas to 3840×2160 pixels (16:9 landscape, wider than tall) - HIGH RESOLUTION
+   - Set DPI/Resolution to 300 DPI (dots per inch) for print-quality clarity
    - Use white background (#FFFFFF)
    - Apply colored BORDERS to containers (as specified above)
-   - CRITICAL: NO fill colors inside boxes - all container backgrounds must be WHITE (#FFFFFF) or TRANSPARENT
-   - Only borders have colors - boxes are empty/transparent inside
+   
+   CRITICAL: NO FILL COLORS - WHITE BACKGROUNDS ONLY:
+   - ALL container backgrounds MUST be pure WHITE (#FFFFFF) - set explicitly
+   - AWS Cloud background: #FFFFFF (white)
+   - Region background: #FFFFFF (white)
+   - VPC background: #FFFFFF (white)
+   - AZ background: #FFFFFF (white) - NOT light blue
+   - Public Subnet background: #FFFFFF (white) - NOT light green (#F2F6E8)
+   - Private Subnet background: #FFFFFF (white) - NOT light cyan (#E6F6F7)
+   - If diagram tool defaults to colored fills, OVERRIDE to #FFFFFF
+   - Only borders have colors - boxes are EMPTY WHITE inside
+   - DO NOT use any tinted colors - ONLY pure white (#FFFFFF)
+   
    - Ensure proper spacing and alignment
    - CRITICAL: Set corner-radius = 0 or border-radius = 0 for ALL container boxes
    - Use RECTANGULAR shapes with SHARP 90-degree CORNERS throughout
    - Arrange components HORIZONTALLY from LEFT to RIGHT (not top to bottom)
    - Match AWS official documentation diagram style
 
-6. SAVE THE DIAGRAM:
-   - Export as high-quality PNG image
-   - Save to: {absolute_output_path}
+6. SAVE THE DIAGRAM (CRITICAL - HIGH QUALITY EXPORT):
+   🚨 MANDATORY SAVE LOCATION - NO EXCEPTIONS 🚨
+   - Export as HIGH-QUALITY PNG image with maximum clarity
+   - Set PNG export settings:
+     * Resolution: 300 DPI (dots per inch) - CRITICAL for clarity
+     * Compression: NONE or LOW (do NOT use high compression - it reduces quality)
+     * Color depth: 24-bit or 32-bit (full color, not 8-bit)
+     * Anti-aliasing: ENABLED (for smooth edges)
+     * Quality: 100% or maximum quality setting
+   - Canvas size: 3840×2160 pixels at 300 DPI
+   - Save DIRECTLY and ONLY to this EXACT path: {absolute_output_path}
+   - DO NOT save to ANY other location
+   - DO NOT save to the Backend directory
+   - DO NOT save to the root directory
+   - DO NOT create nested folders or subdirectories
+   - DO NOT save to generated-diagrams/generated-diagrams/ or any nested path
+   - DO NOT save outside the outputs/generated-diagrams/ directory
+   - Save ONLY to: {absolute_output_path}
+   - The file MUST be saved at: outputs/generated-diagrams/ - NOWHERE ELSE
+   - If you save to any other location, the diagram will NOT be found
 
 CRITICAL VALIDATION BEFORE SAVING:
 - Verify the output is a PNG IMAGE file (not text, not code, not DOT file)
 - Verify the image contains VISUAL ELEMENTS (icons, boxes, arrows) not just text
+- Verify HIGH QUALITY EXPORT:
+  * Resolution: 3840×2160 pixels (or minimum 1920×1080)
+  * DPI: 300 DPI for maximum clarity
+  * Compression: NONE or LOWEST (no high compression)
+  * Color depth: 24-bit or 32-bit (full color)
+  * Image should be sharp and clear, not pixelated or blurry
 - Verify ALL services from the summary are represented
 - Verify the layout is HORIZONTAL (16:9, wider than tall)
+- VERIFY ALL MANDATORY CONTAINER BOXES ARE PRESENT:
+  * AWS Cloud container (outermost) - MUST be present
+  * Region container (inside AWS Cloud) - MUST be present
+  * VPC container (inside Region) - MUST be present
+  * Availability Zone containers (2-3 AZs, inside VPC) - MUST be present
+  * Subnet containers (inside each AZ) - MUST be present
 - VERIFY ALL CONTAINER BOXES ARE RECTANGULAR WITH SHARP CORNERS (NO rounded/curved boxes)
+- 🚨 VERIFY NO FILL COLORS - CRITICAL CHECK 🚨:
+  * VISUALLY INSPECT the diagram - all container boxes must have WHITE backgrounds
+  * All container backgrounds MUST be pure WHITE (#FFFFFF) - check visually
+  * NO light green (#F2F6E8) visible in Public Subnets - if you see green tint, it's WRONG
+  * NO light cyan (#E6F6F7) visible in Private Subnets - if you see cyan tint, it's WRONG
+  * NO light blue tints visible in AZs - if you see blue tint, it's WRONG
+  * NO colored fills of ANY kind inside container boxes - boxes must be EMPTY WHITE
+  * If you see ANY colored background inside boxes (green, cyan, blue, or any color), STOP and fix it
+  * Only borders should have colors - the inside of boxes must be pure white
+  * If the diagram has colored fills, DO NOT save it - regenerate with white fills
 - Verify boxes match AWS official diagram standards
 - Verify official AWS service icons are used (not generic shapes)
 - VERIFY MINIMAL ARROWS: Only essential data flows shown, NO monitoring/logging arrows, NO security service arrows
 - Verify arrows are simple (solid, black/gray) - NO complex color coding or excessive labels
+- VERIFY SAVE PATH: File saved to exact path {absolute_output_path} (NOT in nested folders)
 
 NOW EXECUTE: Use the available diagram generation tools to create this complete AWS-standard architecture diagram and save it to the specified path.
 
 FINAL AWS STANDARDS CHECKLIST:
 ✓ RECTANGULAR containers with SHARP CORNERS (corner-radius = 0)
 ✓ Official AWS Architecture Icons
-✓ Colored borders only - NO fill colors inside boxes (white/transparent backgrounds)
+✓ Colored borders only - NO fill colors inside boxes
+✓ ALL container backgrounds MUST be pure WHITE (#FFFFFF) - NO tinted colors
+✓ Public Subnets: Green border, WHITE (#FFFFFF) background - NOT light green (#F2F6E8)
+✓ Private Subnets: Cyan border, WHITE (#FFFFFF) background - NOT light cyan (#E6F6F7)
 ✓ HORIZONTAL LEFT-TO-RIGHT flow (NOT top-to-bottom)
 ✓ Availability Zones arranged side-by-side horizontally
 ✓ MINIMAL ARROWS - only essential data flows (Users→Edge→App→Database)
@@ -710,6 +897,7 @@ FINAL AWS STANDARDS CHECKLIST:
 ✓ Professional, clean layout matching AWS documentation
 ✓ White background
 ✓ 16:9 landscape orientation (wider than tall)
+✓ HIGH QUALITY export (300 DPI, no compression, 24-bit color, maximum clarity)
 ✗ NO rounded corners on containers
 ✗ NO curved boxes
 ✗ NO colored fills inside container boxes
@@ -718,6 +906,41 @@ FINAL AWS STANDARDS CHECKLIST:
 ✗ NO monitoring/logging arrows (CloudWatch, CloudTrail, X-Ray)
 ✗ NO security service arrows (IAM, KMS, Secrets Manager)
 ✗ NO excessive arrows - keep it minimal and simple
+✗ NO nested folders - save directly to {absolute_output_path}
+
+FINAL REMINDERS:
+1. ALL container boxes are MANDATORY - AWS Cloud, Region, VPC, AZs, Subnets must all be drawn
+
+2. 🚨 NO FILL COLORS - ABSOLUTELY CRITICAL 🚨:
+   - When creating EACH container box, you MUST explicitly set:
+     * fill = #FFFFFF
+     * fillColor = #FFFFFF
+     * backgroundColor = #FFFFFF
+     * background = #FFFFFF
+   - ALL container backgrounds MUST be pure WHITE (#FFFFFF) - NO exceptions
+   - DO NOT use #F2F6E8 (light green) for Public Subnets - use #FFFFFF
+   - DO NOT use #E6F6F7 (light cyan) for Private Subnets - use #FFFFFF
+   - DO NOT use ANY tinted colors - ONLY pure white (#FFFFFF)
+   - Set fill color explicitly to #FFFFFF for ALL containers BEFORE saving
+   - If diagram tool defaults to colored fills, OVERRIDE to white (#FFFFFF)
+   - VISUALLY CHECK the diagram - if you see ANY color inside boxes, it's WRONG
+   - Only borders have colors - boxes are EMPTY WHITE inside
+
+3. 🚨 SAVE LOCATION - ABSOLUTELY CRITICAL 🚨:
+   - Save ONLY to: {absolute_output_path}
+   - This path is: outputs/generated-diagrams/ - NOWHERE ELSE
+   - DO NOT save to Backend directory
+   - DO NOT save to project root
+   - DO NOT save to any nested folders
+   - DO NOT save outside outputs/generated-diagrams/
+   - If you save anywhere else, the file will NOT be found
+   - The EXACT path is: {absolute_output_path}
+   - Save DIRECTLY to this path - no subdirectories, no other locations
+
+4. Follow the reference diagram style - clean, professional, minimal arrows, WHITE backgrounds only
+
+IF YOU SEE COLORED FILLS IN THE DIAGRAM, DO NOT SAVE IT - REGENERATE WITH WHITE FILLS!
+IF YOU SAVE TO ANY LOCATION OTHER THAN {absolute_output_path}, THE DIAGRAM WILL NOT BE FOUND!
 """
 
         # Initialize MCP client and agent
@@ -729,10 +952,10 @@ FINAL AWS STANDARDS CHECKLIST:
         
         try:
             mcp_client = MCPClient(lambda: stdio_client(
-                StdioServerParameters(
-                    command=uvx_path,
-                    args=["awslabs.aws-diagram-mcp-server"]
-                )
+            StdioServerParameters(
+                command=uvx_path,
+                args=["awslabs.aws-diagram-mcp-server"]
+            )
             ))
         finally:
             # Restore original environment
@@ -829,7 +1052,7 @@ FINAL AWS STANDARDS CHECKLIST:
                 # For now, return None and let the API return the summary
                 print("DOT file found but PNG conversion unavailable. Install Graphviz: brew install graphviz")
             
-            # Check for image files (PNG, JPG, SVG) - prioritize files matching request ID
+            # Check for image files (PNG, JPG, SVG) - ONLY in outputs/generated-diagrams/
             image_files = []
             # Extract UUID request ID from filename (format: YYYYMMDD_HHMMSS_UUID_diagram.png)
             filename_parts = output_path.stem.split('_')
@@ -841,24 +1064,43 @@ FINAL AWS STANDARDS CHECKLIST:
             
             print(f"Looking for diagram files matching request ID: {request_id}")
             print(f"Expected output path: {output_path}")
+            print(f"Searching ONLY in: {output_dir}")
             
-            # Search in multiple directories (including subdirectories)
+            # Search ONLY in the outputs/generated-diagrams/ directory
+            # Also check nested generated-diagrams/generated-diagrams/ and move files if found
             search_dirs = [output_dir]
-            if generated_diagrams_dir.exists() and generated_diagrams_dir != output_dir:
-                search_dirs.append(generated_diagrams_dir)
-            if parent_output_dir != output_dir:
-                search_dirs.append(parent_output_dir)
-            search_dirs.append(parent_dir)
+            nested_dir = output_dir / "generated-diagrams"
+            if nested_dir.exists():
+                search_dirs.append(nested_dir)
             
-            # Use recursive glob to search subdirectories too
+            # Search for files in the correct directory
             for search_dir in search_dirs:
                 for pattern in ["*.png", "*.jpg", "*.jpeg", "*.svg"]:
-                    # Search current directory
                     image_files.extend([f for f in search_dir.glob(pattern) if f.is_file()])
-                    # Also search one level deep (for nested generated-diagrams folders)
-                    image_files.extend([f for f in search_dir.glob(f"*/{pattern}") if f.is_file()])
             
-            print(f"Found {len(image_files)} total image files")
+            # Also search for files saved outside outputs/ and move them
+            # Check Backend directory and parent directories for misplaced files
+            misplaced_locations = [
+                Path(__file__).parent,  # Backend directory
+                Path(__file__).parent.parent,  # Project root
+            ]
+            
+            for misplaced_dir in misplaced_locations:
+                for pattern in ["*.png", "*.jpg", "*.jpeg", "*.svg"]:
+                    misplaced_files = list(misplaced_dir.glob(pattern))
+                    for misplaced_file in misplaced_files:
+                        # Check if it's a diagram file (contains timestamp pattern or UUID)
+                        if request_id in misplaced_file.stem or "_diagram" in misplaced_file.name:
+                            target_path = output_dir / misplaced_file.name
+                            if not target_path.exists():
+                                try:
+                                    print(f"Moving misplaced file from {misplaced_file.parent} to {output_dir}")
+                                    shutil.move(str(misplaced_file), str(target_path))
+                                    image_files.append(target_path)
+                                except Exception as e:
+                                    print(f"Failed to move misplaced file: {e}")
+            
+            print(f"Found {len(image_files)} total image files in outputs/generated-diagrams/")
             
             if image_files:
                 # Filter to find files matching the request ID first
@@ -873,11 +1115,42 @@ FINAL AWS STANDARDS CHECKLIST:
                     # If we have files matching the request ID, use the most recent one
                     latest_image = max(matching_files, key=lambda p: p.stat().st_mtime)
                     print(f"Found matching image file for request {request_id}: {latest_image}")
+                    
+                    # ALWAYS move file to outputs/generated-diagrams/ if it's not already there
+                    if latest_image.parent != output_dir:
+                        target_path = output_dir / latest_image.name
+                        # Handle name conflicts
+                        if target_path.exists():
+                            # Add timestamp to avoid overwriting
+                            target_path = output_dir / f"{latest_image.stem}_moved{latest_image.suffix}"
+                        print(f"Moving file from {latest_image.parent} to {output_dir}")
+                        try:
+                            shutil.move(str(latest_image), str(target_path))
+                            return str(target_path)
+                        except Exception as e:
+                            print(f"Failed to move file: {e}")
+                            return str(latest_image)
+                    
                     return str(latest_image)
                 else:
                     # Fallback to most recently created image overall
                     latest_image = max(image_files, key=lambda p: p.stat().st_mtime)
                     print(f"Found image file (no request ID match): {latest_image}")
+                    
+                    # ALWAYS move file to outputs/generated-diagrams/ if it's not already there
+                    if latest_image.parent != output_dir:
+                        target_path = output_dir / latest_image.name
+                        # Handle name conflicts
+                        if target_path.exists():
+                            target_path = output_dir / f"{latest_image.stem}_moved{latest_image.suffix}"
+                        print(f"Moving file from {latest_image.parent} to {output_dir}")
+                        try:
+                            shutil.move(str(latest_image), str(target_path))
+                            return str(target_path)
+                        except Exception as e:
+                            print(f"Failed to move file: {e}")
+                            return str(latest_image)
+                    
                     return str(latest_image)
             
             print("No diagram file found after generation")
@@ -1034,8 +1307,35 @@ async def list_diagrams():
     """List all generated diagrams with metadata"""
     try:
         generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
-        if not generated_diagrams_dir.exists():
-            return {"diagrams": []}
+        generated_diagrams_dir.mkdir(exist_ok=True)
+        
+        # Clean up: Move any misplaced diagram files to outputs/generated-diagrams/
+        misplaced_locations = [
+            Path(__file__).parent,  # Backend directory
+            Path(__file__).parent.parent,  # Project root
+            generated_diagrams_dir / "generated-diagrams",  # Nested folder
+        ]
+        
+        for misplaced_dir in misplaced_locations:
+            if misplaced_dir.exists():
+                for file_path in misplaced_dir.glob("*.png"):
+                    if file_path.is_file() and "_diagram" in file_path.name:
+                        target_path = generated_diagrams_dir / file_path.name
+                        # Handle name conflicts
+                        if target_path.exists():
+                            # Skip if already exists (avoid overwriting)
+                            try:
+                                file_path.unlink()  # Delete duplicate
+                                print(f"Removed duplicate diagram: {file_path.name}")
+                            except Exception as e:
+                                print(f"Failed to remove duplicate {file_path}: {e}")
+                            continue
+                        
+                        try:
+                            shutil.move(str(file_path), str(target_path))
+                            print(f"Moved misplaced diagram from {misplaced_dir} to outputs/generated-diagrams/: {file_path.name}")
+                        except Exception as e:
+                            print(f"Failed to move file {file_path}: {e}")
         
         diagrams = []
         for file_path in generated_diagrams_dir.glob("*.png"):
