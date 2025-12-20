@@ -15,7 +15,9 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+from typing import List, Dict, Any
 import uvicorn
+import re
 
 # Add parent directory to path to import pdf_extractor
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -44,6 +46,40 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 class DiagramRequest(BaseModel):
     aws_region: Optional[str] = "us-east-1"
     bedrock_model_id: Optional[str] = "anthropic.claude-3-sonnet-20240229-v1:0"
+
+
+class ComponentItem(BaseModel):
+    """Represents a single component in the architecture"""
+    name: str
+    type: str  # e.g., "compute", "storage", "network", "security", "monitoring"
+    description: str
+    relationships: List[str] = []  # List of related component names
+
+
+class ComponentCategory(BaseModel):
+    """Represents a category of components"""
+    category: str
+    components: List[ComponentItem]
+
+
+class ComponentListResponse(BaseModel):
+    """Structured component list response"""
+    project_name: str
+    summary: str
+    categories: List[ComponentCategory]
+    total_components: int
+
+
+class PseudoDiagramResponse(BaseModel):
+    """Pseudo diagram description response"""
+    project_name: str
+    diagram_type: str  # e.g., "mermaid", "drawio", "lucidchart"
+    description: str
+    syntax: str  # Text-based diagram syntax
+
+
+# Storage for request data (in production, use a database)
+request_storage: Dict[str, Dict[str, Any]] = {}
 
 
 def find_uvx_command() -> Optional[str]:
@@ -1175,6 +1211,269 @@ def generate_diagram(summary_text: str, output_path: Path) -> Optional[str]:
     return generate_diagram_with_strands(summary_text, output_path)
 
 
+# ============================================================================
+# SERVICE LAYER: Structured Output Generation
+# ============================================================================
+
+def extract_component_list(summary_text: str, aws_region: str, model_id: str) -> ComponentListResponse:
+    """
+    Generate structured component list from architecture summary.
+    Uses Bedrock to parse and structure the architecture components.
+    """
+    prompt = f"""Analyze the following architecture summary and extract a structured component list.
+
+Architecture Summary:
+{summary_text}
+
+Your task: Create a comprehensive, hierarchical list of ALL components mentioned in the architecture.
+
+Output format (JSON):
+{{
+  "project_name": "Brief project name extracted from summary",
+  "summary": "One-sentence high-level summary",
+  "categories": [
+    {{
+      "category": "Compute & Application",
+      "components": [
+        {{
+          "name": "Component Name",
+          "type": "compute|storage|network|security|monitoring|integration|database",
+          "description": "Brief description of purpose and configuration",
+          "relationships": ["Related Component 1", "Related Component 2"]
+        }}
+      ]
+    }}
+  ]
+}}
+
+Categories to use:
+- Compute & Application (EC2, ECS, Lambda, etc.)
+- Storage & Database (S3, RDS, DynamoDB, ElastiCache, etc.)
+- Networking (VPC, ALB, API Gateway, CloudFront, etc.)
+- Security & Access (IAM, WAF, KMS, Secrets Manager, etc.)
+- Monitoring & Logging (CloudWatch, CloudTrail, X-Ray, etc.)
+- Integration & Messaging (SQS, SNS, EventBridge, etc.)
+- External Systems (Third-party APIs, SaaS integrations, etc.)
+
+Requirements:
+1. Include EVERY component mentioned in the summary
+2. Provide clear, concise descriptions
+3. Identify relationships between components (data flows, dependencies)
+4. Organize logically by category
+5. Return ONLY valid JSON, no additional text
+
+Generate the structured component list now:"""
+
+    try:
+        # Use Bedrock to generate structured output
+        from pdf_extractor import summarize_with_bedrock
+        
+        import boto3
+        import json as json_lib
+        
+        session = boto3.Session(region_name=aws_region)
+        bedrock = session.client('bedrock-runtime')
+        
+        # Prepare request for Claude
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4096,
+            "temperature": 0.1,  # Low temperature for structured output
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+        
+        # Call Bedrock
+        response = bedrock.invoke_model(
+            modelId=model_id,
+            body=json_lib.dumps(request_body)
+        )
+        
+        # Parse response
+        response_body = json_lib.loads(response['body'].read())
+        content = response_body.get('content', [{}])[0].get('text', '{}')
+        
+        print(f"Raw Bedrock response (first 500 chars): {content[:500]}")
+        
+        # Extract JSON from response (handle markdown code blocks)
+        # Try multiple patterns to extract JSON
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\n\})\s*```', content, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'(\{[^`]*\})', content, re.DOTALL)
+        
+        if json_match:
+            content = json_match.group(1).strip()
+        
+        print(f"Extracted JSON content (first 300 chars): {content[:300]}")
+        
+        # Parse JSON with error handling
+        try:
+            # First attempt: try to parse as-is
+            data = json_lib.loads(content)
+        except json_lib.JSONDecodeError as e:
+            print(f"JSON decode error: {str(e)}")
+            print(f"Problematic JSON content: {content[:500]}")
+            # Second attempt: try to fix common issues
+            # This shouldn't happen with Claude, but just in case
+            raise e
+        
+        # Calculate total components
+        total = sum(len(cat.get('components', [])) for cat in data.get('categories', []))
+        data['total_components'] = total
+        
+        return ComponentListResponse(**data)
+        
+    except Exception as e:
+        print(f"Error generating component list: {str(e)}")
+        # Return fallback structure
+        return ComponentListResponse(
+            project_name="Architecture",
+            summary="Failed to parse architecture summary",
+            categories=[
+                ComponentCategory(
+                    category="Error",
+                    components=[
+                        ComponentItem(
+                            name="Error",
+                            type="error",
+                            description=f"Failed to generate component list: {str(e)}",
+                            relationships=[]
+                        )
+                    ]
+                )
+            ],
+            total_components=0
+        )
+
+
+def generate_pseudo_diagram(summary_text: str, aws_region: str, model_id: str) -> PseudoDiagramResponse:
+    """
+    Generate pseudo diagram description (text-based diagram definition).
+    Creates diagram syntax suitable for Mermaid, draw.io, or Lucidchart.
+    """
+    prompt = f"""Create a text-based diagram definition from this architecture summary.
+
+Architecture Summary:
+{summary_text}
+
+Your task: Generate a pseudo-diagram description using Mermaid syntax that clearly represents the system architecture, components, and relationships.
+
+CRITICAL: Return ONLY a valid JSON object. The "syntax" field must have newlines properly escaped as \\n.
+
+Requirements:
+1. Use Mermaid flowchart syntax (LR = left-to-right)
+2. Include ALL components from the summary
+3. Show clear data flows and relationships
+4. Use proper node types:
+   - [] for processes/services
+   - [()] for databases
+   - {{}} for decisions/gateways
+   - () for external systems
+5. Group related components using subgraphs
+6. Include directional arrows with labels
+7. Make it copy-paste ready for visualization tools
+
+Output format (VALID JSON - newlines in syntax must be escaped as \\n):
+{{
+  "project_name": "Brief project name",
+  "diagram_type": "mermaid",
+  "description": "Brief description of what the diagram shows",
+  "syntax": "graph LR\\n    Users((Users)) -->|HTTPS| CF[CloudFront]\\n    CF --> ALB[Load Balancer]"
+}}
+
+IMPORTANT RULES:
+1. Return ONLY the JSON object, no other text
+2. All newlines in the "syntax" field MUST be escaped as \\n
+3. All quotes inside strings must be escaped as \\"
+4. Do NOT wrap in markdown code blocks
+5. The JSON must be parseable by json.loads()
+
+Generate the pseudo diagram definition now:"""
+
+    try:
+        import boto3
+        import json as json_lib
+        
+        session = boto3.Session(region_name=aws_region)
+        bedrock = session.client('bedrock-runtime')
+        
+        # Prepare request for Claude
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4096,
+            "temperature": 0.1,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+        
+        # Call Bedrock
+        response = bedrock.invoke_model(
+            modelId=model_id,
+            body=json_lib.dumps(request_body)
+        )
+        
+        # Parse response
+        response_body = json_lib.loads(response['body'].read())
+        content = response_body.get('content', [{}])[0].get('text', '{}')
+        
+        print(f"Raw Bedrock response (first 500 chars): {content[:500]}")
+        
+        # Extract JSON from response - try multiple methods
+        json_str = content.strip()
+        
+        # Method 1: Check for markdown code blocks
+        if '```' in json_str:
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', json_str, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+        
+        # Method 2: If still has non-JSON text, try to extract just the JSON object
+        if not json_str.startswith('{'):
+            json_match = re.search(r'(\{.*\})', json_str, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+        
+        print(f"Extracted JSON (first 300 chars): {json_str[:300]}")
+        
+        # Parse JSON with error handling
+        try:
+            data = json_lib.loads(json_str)
+        except json_lib.JSONDecodeError as e:
+            print(f"JSON decode error: {str(e)}")
+            print(f"Problematic position: Line {e.lineno}, Column {e.colno}")
+            print(f"Full JSON content:\n{json_str[:1000]}")
+            # Re-raise with more context
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to parse AI response as JSON. Error: {str(e)}"
+            )
+        
+        # Unescape newlines in syntax field if they were escaped
+        if 'syntax' in data and isinstance(data['syntax'], str):
+            # The syntax should have \\n as actual newlines for display
+            data['syntax'] = data['syntax'].replace('\\n', '\n').replace('\\t', '\t')
+        
+        return PseudoDiagramResponse(**data)
+        
+    except Exception as e:
+        print(f"Error generating pseudo diagram: {str(e)}")
+        # Return fallback
+        return PseudoDiagramResponse(
+            project_name="Architecture",
+            diagram_type="mermaid",
+            description="Failed to generate diagram",
+            syntax=f"graph LR\n    Error[\"Error: {str(e)}\"]"
+        )
+
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -1227,6 +1526,15 @@ async def generate_architecture_diagram(
         
         summary_text = summary.get('summary', '')
         
+        # Store request data for later retrieval (component list and pseudo diagram)
+        request_storage[request_id] = {
+            'summary': summary_text,
+            'aws_region': aws_region,
+            'model_id': bedrock_model_id,
+            'timestamp': timestamp,
+            'filename': file.filename
+        }
+        
         # Step 3: Generate diagram
         print(f"Generating architecture diagram...")
         diagram_path = generate_diagram(summary_text, output_diagram_path)
@@ -1242,6 +1550,7 @@ async def generate_architecture_diagram(
                     "message": "Diagram generation unavailable. Architecture summary generated successfully.",
                     "summary": summary_text,
                     "diagram_path": None,
+                    "request_id": request_id,
                     "note": "To enable diagram generation, install 'uv' (https://astral.sh/uv) and ensure strands/mcp packages are available."
                 }
             )
@@ -1256,7 +1565,8 @@ async def generate_architecture_diagram(
                     "success": False,
                     "message": "Diagram file is invalid.",
                     "summary": summary_text,
-                    "diagram_path": None
+                    "diagram_path": None,
+                    "request_id": request_id
                 }
             )
         
@@ -1270,7 +1580,8 @@ async def generate_architecture_diagram(
                     "success": False,
                     "message": "Diagram file is empty.",
                     "summary": summary_text,
-                    "diagram_path": None
+                    "diagram_path": None,
+                    "request_id": request_id
                 }
             )
         
@@ -1341,12 +1652,17 @@ async def list_diagrams():
         for file_path in generated_diagrams_dir.glob("*.png"):
             if file_path.is_file():
                 stat_info = file_path.stat()
+                # Extract request_id from filename (format: YYYYMMDD_HHMMSS_UUID_diagram.png)
+                parts = file_path.stem.split('_')
+                request_id = parts[2] if len(parts) >= 3 else None
+                
                 diagrams.append({
                     "filename": file_path.name,
                     "size": stat_info.st_size,
                     "created": stat_info.st_ctime,
                     "modified": stat_info.st_mtime,
-                    "url": f"/api/diagram-file/{file_path.name}"
+                    "url": f"/api/diagram-file/{file_path.name}",
+                    "request_id": request_id
                 })
         
         # Sort by creation time (newest first)
@@ -1355,6 +1671,80 @@ async def list_diagrams():
         return {"diagrams": diagrams, "count": len(diagrams)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing diagrams: {str(e)}")
+
+
+@app.get("/api/component-list/{request_id}")
+async def get_component_list(request_id: str):
+    """
+    Generate and return structured component list for a specific diagram.
+    Uses the stored summary to generate hierarchical component structure.
+    """
+    # Check if request_id exists in storage
+    if request_id not in request_storage:
+        # Try to find request_id from diagram filename
+        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
+        found = False
+        for file_path in generated_diagrams_dir.glob("*.png"):
+            if request_id in file_path.name:
+                found = True
+                # Since we don't have stored data, return error
+                raise HTTPException(
+                    status_code=404, 
+                    detail="Request data not found. Component list only available for newly generated diagrams."
+                )
+        
+        if not found:
+            raise HTTPException(status_code=404, detail="Request ID not found")
+    
+    # Get stored data
+    request_data = request_storage[request_id]
+    summary_text = request_data['summary']
+    aws_region = request_data['aws_region']
+    model_id = request_data['model_id']
+    
+    try:
+        # Generate component list
+        component_list = extract_component_list(summary_text, aws_region, model_id)
+        return component_list
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating component list: {str(e)}")
+
+
+@app.get("/api/pseudo-diagram/{request_id}")
+async def get_pseudo_diagram(request_id: str):
+    """
+    Generate and return pseudo diagram description for a specific diagram.
+    Creates text-based diagram syntax suitable for diagramming tools.
+    """
+    # Check if request_id exists in storage
+    if request_id not in request_storage:
+        # Try to find request_id from diagram filename
+        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
+        found = False
+        for file_path in generated_diagrams_dir.glob("*.png"):
+            if request_id in file_path.name:
+                found = True
+                # Since we don't have stored data, return error
+                raise HTTPException(
+                    status_code=404,
+                    detail="Request data not found. Pseudo diagram only available for newly generated diagrams."
+                )
+        
+        if not found:
+            raise HTTPException(status_code=404, detail="Request ID not found")
+    
+    # Get stored data
+    request_data = request_storage[request_id]
+    summary_text = request_data['summary']
+    aws_region = request_data['aws_region']
+    model_id = request_data['model_id']
+    
+    try:
+        # Generate pseudo diagram
+        pseudo_diagram = generate_pseudo_diagram(summary_text, aws_region, model_id)
+        return pseudo_diagram
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating pseudo diagram: {str(e)}")
 
 
 @app.get("/api/diagram-file/{filename}")

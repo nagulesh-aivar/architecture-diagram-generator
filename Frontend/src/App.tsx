@@ -12,6 +12,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [diagramUrl, setDiagramUrl] = useState<string | null>(null)
+  const [requestId, setRequestId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [awsRegion, setAwsRegion] = useState('us-east-1')
   const [bedrockModelId, setBedrockModelId] = useState('anthropic.claude-3-sonnet-20240229-v1:0')
@@ -80,6 +81,13 @@ function App() {
         const url = URL.createObjectURL(blob)
         setDiagramUrl(url)
         setError(null) // Clear any previous errors
+        
+        // Store request ID from headers
+        const rid = response.headers.get('X-Request-ID')
+        if (rid) {
+          setRequestId(rid)
+          console.log('Request ID:', rid)
+        }
         
         // Log the filename for debugging
         const filename = response.headers.get('X-Filename')
@@ -287,23 +295,49 @@ function App() {
                   className="w-full h-auto"
                 />
               </div>
-              <a
-                href={diagramUrl}
-                download="architecture-diagram.png"
-                className="inline-flex items-center px-6 py-3 rounded-lg font-semibold text-white transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95"
-                style={{ backgroundColor: '#9C83C9' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#8B72B8'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#9C83C9'
-                }}
-              >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Download Diagram
-              </a>
+              <div className="w-full flex flex-col sm:flex-row gap-3">
+                <a
+                  href={diagramUrl}
+                  download="architecture-diagram.png"
+                  className="flex-1 inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold text-white transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95"
+                  style={{ backgroundColor: '#9C83C9' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#8B72B8'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#9C83C9'
+                  }}
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download Diagram
+                </a>
+                {requestId && (
+                  <>
+                    <Link
+                      to={`/component-list/${requestId}`}
+                      className="flex-1 inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold border-2 transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95"
+                      style={{ borderColor: '#9C83C9', color: '#9C83C9' }}
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      Component List
+                    </Link>
+                    <Link
+                      to={`/pseudo-diagram/${requestId}`}
+                      className="flex-1 inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold border-2 transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95"
+                      style={{ borderColor: '#9C83C9', color: '#9C83C9' }}
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                      </svg>
+                      Pseudo Diagram
+                    </Link>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}
