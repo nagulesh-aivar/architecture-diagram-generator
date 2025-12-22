@@ -241,7 +241,7 @@ function PseudoDiagram() {
               {/* Recommended Tools */}
               <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
                 <h4 className="text-sm font-semibold text-purple-800 mb-3">Recommended Tools:</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <a
                     href="https://mermaid.live"
                     target="_blank"
@@ -257,14 +257,6 @@ function PseudoDiagram() {
                     className="px-4 py-2 bg-white border-2 border-purple-300 rounded-lg text-center font-medium text-purple-700 hover:bg-purple-100 transition-colors"
                   >
                     draw.io →
-                  </a>
-                  <a
-                    href="https://www.lucidchart.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-white border-2 border-purple-300 rounded-lg text-center font-medium text-purple-700 hover:bg-purple-100 transition-colors"
-                  >
-                    Lucidchart →
                   </a>
                 </div>
               </div>
