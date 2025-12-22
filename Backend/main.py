@@ -40,7 +40,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 # Create outputs directory for diagrams
 OUTPUT_DIR = Path(__file__).parent / "outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class DiagramRequest(BaseModel):
@@ -78,8 +78,59 @@ class PseudoDiagramResponse(BaseModel):
     syntax: str  # Text-based diagram syntax
 
 
-# Storage for request data (in production, use a database)
+# Storage for request data (in-memory)
 request_storage: Dict[str, Dict[str, Any]] = {}
+
+# Metadata file for persistence
+METADATA_FILE = Path(__file__).parent / "outputs" / "diagram_metadata.json"
+
+
+def load_metadata() -> Dict[str, Dict[str, Any]]:
+    """Load metadata from persistent storage"""
+    if METADATA_FILE.exists():
+        try:
+            with open(METADATA_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading metadata: {e}")
+            return {}
+    return {}
+
+
+def save_metadata(metadata: Dict[str, Dict[str, Any]]):
+    """Save metadata to persistent storage"""
+    try:
+        METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(METADATA_FILE, 'w') as f:
+            json.dump(metadata, f, indent=2)
+    except Exception as e:
+        print(f"Error saving metadata: {e}")
+
+
+def get_request_data(request_id: str) -> Optional[Dict[str, Any]]:
+    """Get request data from memory or persistent storage"""
+    # First check in-memory storage
+    if request_id in request_storage:
+        return request_storage[request_id]
+    
+    # Check persistent storage
+    metadata = load_metadata()
+    if request_id in metadata:
+        return metadata[request_id]
+    
+    # Try to find by diagram filename
+    generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
+    for file_path in generated_diagrams_dir.glob("*.png"):
+        if request_id in file_path.name:
+            # Extract timestamp from filename (format: YYYYMMDD_HHMMSS_UUID_diagram.png)
+            parts = file_path.stem.split('_')
+            if len(parts) >= 3:
+                # Check metadata for this request_id
+                metadata = load_metadata()
+                if request_id in metadata:
+                    return metadata[request_id]
+    
+    return None
 
 
 def find_uvx_command() -> Optional[str]:
@@ -1500,7 +1551,7 @@ async def generate_architecture_diagram(
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
-    generated_diagrams_dir.mkdir(exist_ok=True)
+    generated_diagrams_dir.mkdir(parents=True, exist_ok=True)
     output_diagram_path = generated_diagrams_dir / f"{timestamp}_{request_id}_diagram.png"
     
     try:
@@ -1527,13 +1578,20 @@ async def generate_architecture_diagram(
         summary_text = summary.get('summary', '')
         
         # Store request data for later retrieval (component list and pseudo diagram)
-        request_storage[request_id] = {
+        request_data = {
             'summary': summary_text,
             'aws_region': aws_region,
             'model_id': bedrock_model_id,
             'timestamp': timestamp,
-            'filename': file.filename
+            'filename': file.filename,
+            'diagram_path': str(output_diagram_path)
         }
+        request_storage[request_id] = request_data
+        
+        # Also save to persistent storage
+        metadata = load_metadata()
+        metadata[request_id] = request_data
+        save_metadata(metadata)
         
         # Step 3: Generate diagram
         print(f"Generating architecture diagram...")
@@ -1618,7 +1676,7 @@ async def list_diagrams():
     """List all generated diagrams with metadata"""
     try:
         generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
-        generated_diagrams_dir.mkdir(exist_ok=True)
+        generated_diagrams_dir.mkdir(parents=True, exist_ok=True)
         
         # Clean up: Move any misplaced diagram files to outputs/generated-diagrams/
         misplaced_locations = [
@@ -1679,28 +1737,24 @@ async def get_component_list(request_id: str):
     Generate and return structured component list for a specific diagram.
     Uses the stored summary to generate hierarchical component structure.
     """
-    # Check if request_id exists in storage
-    if request_id not in request_storage:
-        # Try to find request_id from diagram filename
-        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
-        found = False
-        for file_path in generated_diagrams_dir.glob("*.png"):
-            if request_id in file_path.name:
-                found = True
-                # Since we don't have stored data, return error
-                raise HTTPException(
-                    status_code=404, 
-                    detail="Request data not found. Component list only available for newly generated diagrams."
-                )
-        
-        if not found:
-            raise HTTPException(status_code=404, detail="Request ID not found")
+    # Get request data from memory or persistent storage
+    request_data = get_request_data(request_id)
     
-    # Get stored data
-    request_data = request_storage[request_id]
-    summary_text = request_data['summary']
-    aws_region = request_data['aws_region']
-    model_id = request_data['model_id']
+    if not request_data:
+        raise HTTPException(
+            status_code=404, 
+            detail="Request data not found. Component list requires the original architecture summary."
+        )
+    
+    summary_text = request_data.get('summary', '')
+    aws_region = request_data.get('aws_region', 'us-east-1')
+    model_id = request_data.get('model_id', 'anthropic.claude-3-sonnet-20240229-v1:0')
+    
+    if not summary_text:
+        raise HTTPException(
+            status_code=404,
+            detail="Architecture summary not found for this diagram."
+        )
     
     try:
         # Generate component list
@@ -1716,28 +1770,24 @@ async def get_pseudo_diagram(request_id: str):
     Generate and return pseudo diagram description for a specific diagram.
     Creates text-based diagram syntax suitable for diagramming tools.
     """
-    # Check if request_id exists in storage
-    if request_id not in request_storage:
-        # Try to find request_id from diagram filename
-        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
-        found = False
-        for file_path in generated_diagrams_dir.glob("*.png"):
-            if request_id in file_path.name:
-                found = True
-                # Since we don't have stored data, return error
-                raise HTTPException(
-                    status_code=404,
-                    detail="Request data not found. Pseudo diagram only available for newly generated diagrams."
-                )
-        
-        if not found:
-            raise HTTPException(status_code=404, detail="Request ID not found")
+    # Get request data from memory or persistent storage
+    request_data = get_request_data(request_id)
     
-    # Get stored data
-    request_data = request_storage[request_id]
-    summary_text = request_data['summary']
-    aws_region = request_data['aws_region']
-    model_id = request_data['model_id']
+    if not request_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Request data not found. Pseudo diagram requires the original architecture summary."
+        )
+    
+    summary_text = request_data.get('summary', '')
+    aws_region = request_data.get('aws_region', 'us-east-1')
+    model_id = request_data.get('model_id', 'anthropic.claude-3-sonnet-20240229-v1:0')
+    
+    if not summary_text:
+        raise HTTPException(
+            status_code=404,
+            detail="Architecture summary not found for this diagram."
+        )
     
     try:
         # Generate pseudo diagram
@@ -1745,6 +1795,58 @@ async def get_pseudo_diagram(request_id: str):
         return pseudo_diagram
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating pseudo diagram: {str(e)}")
+
+
+@app.get("/api/diagram-details/{request_id}")
+async def get_diagram_details(request_id: str):
+    """
+    Get both component list and pseudo diagram for a specific diagram.
+    Returns a combined response with both components and pseudo code.
+    """
+    # Get request data from memory or persistent storage
+    request_data = get_request_data(request_id)
+    
+    if not request_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Request data not found. Diagram details require the original architecture summary."
+        )
+    
+    summary_text = request_data.get('summary', '')
+    aws_region = request_data.get('aws_region', 'us-east-1')
+    model_id = request_data.get('model_id', 'anthropic.claude-3-sonnet-20240229-v1:0')
+    
+    if not summary_text:
+        raise HTTPException(
+            status_code=404,
+            detail="Architecture summary not found for this diagram."
+        )
+    
+    try:
+        # Generate both component list and pseudo diagram
+        # These are I/O bound operations (Bedrock API calls), so we run them concurrently
+        import asyncio
+        
+        loop = asyncio.get_event_loop()
+        
+        # Run both generation tasks concurrently in thread pool
+        component_list, pseudo_diagram = await asyncio.gather(
+            loop.run_in_executor(None, extract_component_list, summary_text, aws_region, model_id),
+            loop.run_in_executor(None, generate_pseudo_diagram, summary_text, aws_region, model_id)
+        )
+        
+        return {
+            "request_id": request_id,
+            "components": component_list,
+            "pseudo_diagram": pseudo_diagram,
+            "metadata": {
+                "timestamp": request_data.get('timestamp'),
+                "filename": request_data.get('filename'),
+                "diagram_path": request_data.get('diagram_path')
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating diagram details: {str(e)}")
 
 
 @app.get("/api/diagram-file/{filename}")

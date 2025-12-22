@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Temporary files
+uploads/*
+!uploads/.gitkeep
+
+# Stray diagram files in root (should be in outputs/generated-diagrams/)
+/*.png
+!/outputs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# DynamoDB local
+dynamodb_local_latest/
+
+# Generated diagrams and metadata
+outputs/
+generated-diagrams/
+*.png
+diagram_metadata.json
+
+# Keep directory structure but ignore contents
+!outputs/.gitkeep
+!generated-diagrams/.gitkeep
+
