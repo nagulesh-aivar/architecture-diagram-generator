@@ -27,6 +27,7 @@ function App() {
   const [awsRegion, setAwsRegion] = useState('us-east-1')
   const [bedrockModelId, setBedrockModelId] = useState('arn:aws:bedrock:us-east-1:302263040839:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0')
   const eventSourceRef = useRef<EventSource | null>(null)
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -59,7 +60,7 @@ function App() {
       formData.append('aws_region', awsRegion)
       formData.append('bedrock_model_id', bedrockModelId)
 
-      const response = await fetch('http://localhost:8000/api/generate-summary', {
+      const response = await fetch(`${apiUrl}/api/generate-summary`, {
         method: 'POST',
         body: formData,
       })
@@ -172,7 +173,7 @@ FORBIDDEN:
       formData.append('aws_region', awsRegion)
       formData.append('bedrock_model_id', bedrockModelId)
 
-      const response = await fetch('http://localhost:8000/api/generate-diagram-from-summary', {
+      const response = await fetch(`${apiUrl}/api/generate-diagram-from-summary`, {
         method: 'POST',
         body: formData,
       })

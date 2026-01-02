@@ -13,6 +13,7 @@ function Gallery() {
   const [diagrams, setDiagrams] = useState<Diagram[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   useEffect(() => {
     fetchDiagrams()
@@ -23,7 +24,7 @@ function Gallery() {
 
   const fetchDiagrams = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/diagrams')
+      const response = await fetch(`${apiUrl}/api/diagrams`)
       if (!response.ok) {
         throw new Error('Failed to fetch diagrams')
       }
@@ -123,7 +124,7 @@ function Gallery() {
                 >
                   <div className="aspect-video bg-gray-100 relative">
                     <img
-                      src={`http://localhost:8000${diagram.url}`}
+                      src={`${apiUrl}${diagram.url}`}
                       alt={diagram.filename}
                       className="w-full h-full object-contain"
                       loading="lazy"
@@ -139,7 +140,7 @@ function Gallery() {
                     </div>
                     <div className="flex gap-2">
                       <a
-                        href={`http://localhost:8000${diagram.url}`}
+                        href={`${apiUrl}${diagram.url}`}
                         download={diagram.filename}
                         className="flex-1 text-center px-4 py-2 rounded-lg font-semibold text-white transition-all duration-200 hover:shadow-lg"
                         style={{ backgroundColor: '#9C83C9' }}
@@ -147,7 +148,7 @@ function Gallery() {
                         Download
                       </a>
                       <a
-                        href={`http://localhost:8000${diagram.url}`}
+                        href={`${apiUrl}${diagram.url}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex-1 text-center px-4 py-2 rounded-lg font-semibold border-2 transition-all duration-200 hover:shadow-lg"
