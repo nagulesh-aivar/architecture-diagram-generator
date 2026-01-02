@@ -62,10 +62,26 @@ def extract_with_pdfplumber(pdf_path: str) -> Dict[str, Any]:
     """
     try:
         import pdfplumber
+        import warnings
+        import logging
+        import sys
+        import io
     except ImportError:
         raise ImportError(
             "pdfplumber is not installed. Install it with: pip install pdfplumber"
         )
+    
+    # Suppress pdfplumber warnings about pattern colors BEFORE opening PDF
+    warnings.filterwarnings('ignore', category=UserWarning)
+    warnings.filterwarnings('ignore', message='.*Pattern.*')
+    warnings.filterwarnings('ignore', message='.*gray.*')
+    warnings.filterwarnings('ignore', message='.*non-stroke.*')
+    logging.getLogger('pdfplumber').setLevel(logging.ERROR)
+    
+    # Capture and suppress stderr warnings from pdfplumber
+    old_stderr = sys.stderr
+    stderr_capture = io.StringIO()
+    sys.stderr = stderr_capture
     
     content = {
         'text': '',
@@ -75,29 +91,45 @@ def extract_with_pdfplumber(pdf_path: str) -> Dict[str, Any]:
         'tables': []
     }
     
-    with pdfplumber.open(pdf_path) as pdf:
-        content['num_pages'] = len(pdf.pages)
-        content['metadata'] = pdf.metadata or {}
-        
-        for page_num, page in enumerate(pdf.pages, start=1):
-            page_text = page.extract_text() or ''
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            content['num_pages'] = len(pdf.pages)
+            content['metadata'] = pdf.metadata or {}
             
-            # Extract tables if any
-            tables = page.extract_tables()
-            page_tables = []
-            for table in tables:
-                page_tables.append(table)
-                content['tables'].append({
-                    'page': page_num,
-                    'table': table
-                })
-            
-            content['pages'].append({
-                'page_number': page_num,
-                'text': page_text,
-                'tables': page_tables
-            })
-            content['text'] += f"\n--- Page {page_num} ---\n{page_text}\n"
+            for page_num, page in enumerate(pdf.pages, start=1):
+                try:
+                    page_text = page.extract_text() or ''
+                    
+                    # Extract tables if any
+                    tables = page.extract_tables()
+                    page_tables = []
+                    for table in tables:
+                        page_tables.append(table)
+                        content['tables'].append({
+                            'page': page_num,
+                            'table': table
+                        })
+                    
+                    content['pages'].append({
+                        'page_number': page_num,
+                        'text': page_text,
+                        'tables': page_tables
+                    })
+                    content['text'] += f"\n--- Page {page_num} ---\n{page_text}\n"
+                except Exception as e:
+                    # Continue processing other pages if one fails
+                    print(f"Warning: Error processing page {page_num}: {str(e)}")
+                    continue
+    except Exception as e:
+        # Restore stderr before raising exception
+        sys.stderr = old_stderr
+        raise Exception(f"Error extracting PDF with pdfplumber: {str(e)}")
+    finally:
+        # Restore stderr and clear captured warnings
+        sys.stderr = old_stderr
+        # Clear the captured stderr content (discard warnings)
+        stderr_capture.close()
+        warnings.resetwarnings()
     
     return content
 
@@ -204,7 +236,7 @@ def extract_pdf(
 def summarize_with_bedrock(
     text: str,
     aws_region: str = 'us-east-1',
-    model_id: str = 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    model_id: str = 'arn:aws:bedrock:us-east-1:302263040839:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0',
     summary_type: str = 'architecture'
 ) -> Dict[str, Any]:
     """
@@ -228,27 +260,29 @@ def summarize_with_bedrock(
             "boto3 is not installed. Install it with: pip install boto3"
         )
     
-    # Create architecture-focused prompt
+    # Create architecture-focused prompt - explicitly request plain text (NOT markdown)
     architecture_prompt = """You are an expert system architect. Analyze the following document and create a comprehensive summary focused on architecture and technical components that would be useful for generating an architecture diagram.
 
-Please extract and summarize:
-1. **System Overview**: Main purpose, use case, and high-level architecture
-2. **Core Components**: Key services, applications, databases, APIs, and infrastructure components
-3. **Data Flow**: How data moves through the system, including inputs, processing steps, and outputs
-4. **Technology Stack**: AWS services, frameworks, tools, and technologies used
-5. **Integration Points**: External systems, APIs, and third-party services
-6. **Deployment Architecture**: Deployment strategies, environments, and infrastructure patterns
-7. **Key Workflows**: Main processes, pipelines, and automated workflows
-8. **Storage & Databases**: Data storage solutions, databases, and data management
-9. **Monitoring & Observability**: Logging, monitoring, and alerting components
-10. **Security & Access**: Authentication, authorization, and security mechanisms
+CRITICAL: Write your response in PLAIN TEXT format only. Do NOT use markdown formatting, headers, tables, code blocks, or any special formatting. Write in natural, flowing sentences and paragraphs.
 
-Format the summary in a clear, structured way that would help someone create an accurate architecture diagram. Focus on technical components, their relationships, and data flows.
+Please extract and summarize in plain text:
+1. System Overview: Main purpose, use case, and high-level architecture pattern
+2. Core Components: List all key services, applications, databases, APIs, and infrastructure components with their configurations
+3. Data Flow: Describe how data moves through the system from entry points through processing steps to outputs
+4. Technology Stack: List all AWS services, frameworks, tools, and technologies used
+5. Integration Points: Describe external systems, APIs, and third-party services and how they integrate
+6. Deployment Architecture: Describe deployment strategies, environments, network architecture, and infrastructure patterns
+7. Key Workflows: Describe main processes, pipelines, and automated workflows
+8. Storage and Databases: Describe data storage solutions, databases, and data management approaches
+9. Monitoring and Observability: List logging, monitoring, and alerting components
+10. Security and Access: Describe authentication, authorization, and security mechanisms
+
+Write everything in plain, readable sentences. Do not use markdown headers, tables, code blocks, or bullet points. Use natural language descriptions.
 
 Document content:
 {text}
 
-Please provide a comprehensive architecture-focused summary:"""
+Provide a comprehensive architecture-focused summary in plain text format:"""
 
     general_prompt = """Please provide a comprehensive summary of the following document. Focus on key points, main topics, and important information.
 
@@ -283,13 +317,19 @@ Detailed Summary:"""
         prompt = prompt_template.format(text=text)
     
     try:
-        # Initialize Bedrock runtime client
-        bedrock_runtime = boto3.client('bedrock-runtime', region_name=aws_region)
+        # Initialize Bedrock runtime client with timeout configuration
+        from botocore.config import Config
+        config = Config(
+            read_timeout=300,  # 5 minutes timeout
+            retries={'max_attempts': 2, 'mode': 'standard'}
+        )
+        bedrock_runtime = boto3.client('bedrock-runtime', region_name=aws_region, config=config)
         
-        # Prepare the request body for Claude
+        # Prepare the request body for Claude - limit to 4k tokens for faster response
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 4096,
+            "temperature": 0.3,  # Lower temperature for more consistent, faster responses
             "messages": [
                 {
                     "role": "user",
@@ -302,10 +342,22 @@ Detailed Summary:"""
         print(f"Invoking Bedrock model: {model_id}")
         print("This may take a moment...")
         
-        response = bedrock_runtime.invoke_model(
-            modelId=model_id,
-            body=json.dumps(body)
-        )
+        try:
+            response = bedrock_runtime.invoke_model(
+                modelId=model_id,
+                body=json.dumps(body)
+            )
+        except Exception as invoke_error:
+            # Provide more helpful error message
+            error_msg = str(invoke_error)
+            if "timeout" in error_msg.lower() or "read timeout" in error_msg.lower():
+                raise Exception(
+                    f"Request timed out. The model may be processing a large document. "
+                    f"Try reducing the document size or the model may need more time. "
+                    f"Original error: {error_msg}"
+                )
+            else:
+                raise
         
         # Parse the response
         response_body = json.loads(response['body'].read())
@@ -511,8 +563,8 @@ Examples:
     parser.add_argument(
         '--bedrock-model-id',
         type=str,
-        default='anthropic.claude-3-5-sonnet-20241022-v2:0',
-        help='Bedrock model ID for summarization (default: anthropic.claude-3-5-sonnet-20241022-v2:0)'
+        default='arn:aws:bedrock:us-east-1:302263040839:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0',
+        help='Bedrock model ID or inference profile ARN for summarization (default: Claude Haiku 4.5 inference profile - fastest high-end model)'
     )
     
     parser.add_argument(

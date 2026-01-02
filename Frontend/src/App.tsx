@@ -1,20 +1,32 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 
-interface UploadResponse {
-  success: boolean
-  message?: string
-  summary?: string
-  diagram_path?: string
+interface ProgressEvent {
+  message: string
+  status: 'info' | 'success' | 'error' | 'warning' | 'complete'
+  progress?: number
+  timestamp?: string
+  image_data?: string
+  filename?: string
+  file_size?: number
+  s3_url?: string
+  request_id?: string
 }
 
 function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [generatingSummary, setGeneratingSummary] = useState(false)
+  const [summaryText, setSummaryText] = useState<string>('')
+  const [diagramPrompt, setDiagramPrompt] = useState<string>('')
+  const [showSummaryEditor, setShowSummaryEditor] = useState(false)
   const [diagramUrl, setDiagramUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [progressMessages, setProgressMessages] = useState<ProgressEvent[]>([])
+  const [progressPercent, setProgressPercent] = useState(0)
   const [awsRegion, setAwsRegion] = useState('us-east-1')
-  const [bedrockModelId, setBedrockModelId] = useState('anthropic.claude-3-sonnet-20240229-v1:0')
+  const [bedrockModelId, setBedrockModelId] = useState('arn:aws:bedrock:us-east-1:302263040839:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+  const eventSourceRef = useRef<EventSource | null>(null)
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -30,15 +42,16 @@ function App() {
     }
   }
 
-  const handleUpload = async () => {
+  const handleGenerateSummary = async () => {
     if (!selectedFile) {
       setError('Please select a PDF file first')
       return
     }
 
-    setUploading(true)
+    setGeneratingSummary(true)
     setError(null)
-    setDiagramUrl(null)
+    setSummaryText('')
+    setShowSummaryEditor(false)
 
     try {
       const formData = new FormData()
@@ -46,67 +59,193 @@ function App() {
       formData.append('aws_region', awsRegion)
       formData.append('bedrock_model_id', bedrockModelId)
 
-      const response = await fetch('http://localhost:8000/api/generate-diagram', {
+      const response = await fetch('http://localhost:8000/api/generate-summary', {
         method: 'POST',
         body: formData,
-        cache: 'no-store', // Prevent caching
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        const errorData = await response.json()
         throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
       }
 
-      // Check if response is an image
-      const contentType = response.headers.get('content-type')
-      console.log('Response content-type:', contentType)
-      console.log('Response status:', response.status)
-      
-      if (contentType && contentType.startsWith('image/')) {
-        // Revoke old URL to prevent memory leaks
-        if (diagramUrl) {
-          URL.revokeObjectURL(diagramUrl)
-        }
-        
-        // Create blob URL for the image with cache-busting
-        const blob = await response.blob()
-        console.log('Blob size:', blob.size, 'bytes')
-        console.log('Blob type:', blob.type)
-        
-        if (blob.size === 0) {
-          throw new Error('Received empty image file from server')
-        }
-        
-        const url = URL.createObjectURL(blob)
-        setDiagramUrl(url)
-        setError(null) // Clear any previous errors
-        
-        // Log the filename for debugging
-        const filename = response.headers.get('X-Filename')
-        const fileSize = response.headers.get('X-File-Size')
-        if (filename) {
-          console.log('Loaded diagram:', filename, 'Size:', fileSize, 'bytes')
-        }
+      const data = await response.json()
+      if (data.success && data.summary) {
+        setSummaryText(data.summary)
+        // Generate detailed structured prompt template emphasizing HORIZONTAL LANDSCAPE
+        // Note: {readable_summary} is a PLACEHOLDER that will be replaced by the backend
+        const defaultPrompt = `=== CRITICAL: HORIZONTAL LANDSCAPE LAYOUT (16:9) ===
+YOU MUST CREATE A HORIZONTAL LANDSCAPE DIAGRAM.
+- Canvas: 3840 pixels WIDE × 2160 pixels TALL (16:9 aspect ratio)
+- Orientation: LANDSCAPE (wider than tall)
+- Flow: LEFT-TO-RIGHT (not top-to-bottom)
+- Graphviz rankdir: LR (if using DOT format)
+
+Create a comprehensive AWS architecture diagram based on the following summary.
+
+ARCHITECTURE SUMMARY:
+{readable_summary}
+
+HORIZONTAL COLUMN LAYOUT (LEFT → RIGHT):
+┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+│  COLUMN 1   │  COLUMN 2   │  COLUMN 3   │  COLUMN 4   │  COLUMN 5   │
+│  (LEFT)     │             │  (CENTER)   │             │  (RIGHT)    │
+├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ External &  │ Ingestion & │ Processing  │ Storage &   │ Monitoring  │
+│ Sources     │ Events      │ & Compute   │ Security    │ & Output    │
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
+
+COLUMN 1 - EXTERNAL & INGESTION (20% width):
+   - External users, data sources
+   - Email/API ingestion
+   - S3 Input Buckets
+
+COLUMN 2 - EVENTS & ROUTING (20% width):
+   - S3 Events, Lambda triggers
+   - EventBridge, SQS, SNS
+
+COLUMN 3 - CORE PROCESSING (30% width):
+   - Lambda/EC2/ECS/EKS
+   - SageMaker, AI/ML services
+   - Batch jobs
+
+COLUMN 4 - DATA & SECURITY (20% width):
+   - S3 Output, DynamoDB, RDS
+   - ECR, KMS, Secrets Manager
+   - IAM Roles
+
+COLUMN 5 - MONITORING & INTEGRATION (10% width):
+   - CloudWatch, X-Ray
+   - External APIs
+   - Notifications
+
+STYLING REQUIREMENTS:
+- NO COLORS: Grayscale/Black-White ONLY
+- White background, black borders
+- AWS icons in grayscale
+
+LAYOUT REQUIREMENTS (MANDATORY):
+1. HORIZONTAL LANDSCAPE: Width > Height
+2. ASPECT RATIO: 16:9 (3840×2160 or 1920×1080)
+3. FLOW: LEFT → RIGHT
+4. GRAPHVIZ RANKDIR: LR (if using DOT)
+5. NO VERTICAL STACKING
+
+FORBIDDEN:
+❌ NO vertical flow (top-to-bottom)
+❌ NO portrait orientation
+❌ NO colors`
+        setDiagramPrompt(defaultPrompt)
+        setShowSummaryEditor(true)
       } else {
-        // Handle JSON response (if diagram generation failed)
-        try {
-          const data: UploadResponse = await response.json()
-          if (data.summary) {
-            // Show summary in a readable format
-            setError(
-              `Diagram generation unavailable (strands/mcp not installed). Architecture Summary:\n\n${data.summary.substring(0, 500)}${data.summary.length > 500 ? '...' : ''}`
-            )
-          } else {
-            setError(data.message || 'Diagram generation failed')
+        throw new Error('Failed to generate summary')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while generating summary')
+      console.error('Summary generation error:', err)
+    } finally {
+      setGeneratingSummary(false)
+    }
+  }
+
+  const handleApproveAndGenerate = async () => {
+    if (!summaryText.trim()) {
+      setError('Summary text cannot be empty')
+      return
+    }
+
+    // Close any existing EventSource
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+    }
+
+    setUploading(true)
+    setError(null)
+    setDiagramUrl(null)
+    setProgressMessages([])
+    setProgressPercent(0)
+
+    try {
+      const formData = new FormData()
+      formData.append('summary_text', summaryText)
+      formData.append('diagram_prompt', diagramPrompt)
+      formData.append('aws_region', awsRegion)
+      formData.append('bedrock_model_id', bedrockModelId)
+
+      const response = await fetch('http://localhost:8000/api/generate-diagram-from-summary', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      // Handle Server-Sent Events
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+
+      if (!reader) {
+        throw new Error('Response body is not readable')
+      }
+
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data: ProgressEvent = JSON.parse(line.slice(6))
+              
+              setProgressMessages(prev => [...prev, data])
+              
+              if (data.progress !== undefined) {
+                setProgressPercent(data.progress)
+              }
+
+              // Handle completion
+              if (data.status === 'complete' && data.image_data) {
+                // Convert base64 to blob URL
+                const binaryString = atob(data.image_data)
+                const bytes = new Uint8Array(binaryString.length)
+                for (let i = 0; i < binaryString.length; i++) {
+                  bytes[i] = binaryString.charCodeAt(i)
+                }
+                const blob = new Blob([bytes], { type: 'image/png' })
+                const url = URL.createObjectURL(blob)
+                
+                // Revoke old URL
+                if (diagramUrl) {
+                  URL.revokeObjectURL(diagramUrl)
+                }
+                
+                setDiagramUrl(url)
+                setError(null)
+                setUploading(false)
+              }
+
+              // Handle errors
+              if (data.status === 'error') {
+                setError(data.message)
+                setUploading(false)
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e)
+            }
           }
-        } catch (jsonError) {
-          setError('Failed to parse response from server')
         }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while processing the PDF')
       console.error('Upload error:', err)
-    } finally {
       setUploading(false)
     }
   }
@@ -226,37 +365,161 @@ function App() {
             />
           </div>
 
-          {/* Upload Button */}
-          <button
-            onClick={handleUpload}
-            disabled={!selectedFile || uploading}
-            className="w-full py-4 px-6 rounded-lg font-semibold text-white text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]"
-            style={{ 
-              backgroundColor: '#9C83C9',
-            }}
-            onMouseEnter={(e) => {
-              if (!uploading && selectedFile) {
-                e.currentTarget.style.backgroundColor = '#8B72B8'
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!uploading && selectedFile) {
-                e.currentTarget.style.backgroundColor = '#9C83C9'
-              }
-            }}
-          >
-            {uploading ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing...
-              </span>
-            ) : (
-              'Generate Diagram'
-            )}
-          </button>
+          {/* Generate Summary Button */}
+          {!showSummaryEditor && (
+            <button
+              onClick={handleGenerateSummary}
+              disabled={!selectedFile || generatingSummary || uploading}
+              className="w-full py-4 px-6 rounded-lg font-semibold text-white text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] mb-4"
+              style={{ 
+                backgroundColor: '#9C83C9',
+              }}
+              onMouseEnter={(e) => {
+                if (!generatingSummary && selectedFile) {
+                  e.currentTarget.style.backgroundColor = '#8B72B8'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!generatingSummary && selectedFile) {
+                  e.currentTarget.style.backgroundColor = '#9C83C9'
+                }
+              }}
+            >
+              {generatingSummary ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Generating Summary...
+                </span>
+              ) : (
+                'Generate Summary'
+              )}
+            </button>
+          )}
+
+          {/* Summary Editor */}
+          {showSummaryEditor && (
+            <>
+              <div className="mb-6 p-4 rounded-xl border-2" style={{ borderColor: '#9C83C9', backgroundColor: '#F9F8FC' }}>
+                <h3 className="text-lg font-semibold mb-3" style={{ color: '#9C83C9' }}>
+                  Architecture Summary (Edit if needed)
+                </h3>
+                <textarea
+                  value={summaryText}
+                  onChange={(e) => setSummaryText(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#9C83C9] focus:border-[#9C83C9] outline-none transition-all resize-y font-mono text-sm"
+                  rows={12}
+                  placeholder="Architecture summary will appear here..."
+                  disabled={uploading}
+                />
+              </div>
+
+              <div className="mb-6 p-4 rounded-xl border-2" style={{ borderColor: '#9C83C9', backgroundColor: '#F9F8FC' }}>
+                <h3 className="text-lg font-semibold mb-3" style={{ color: '#9C83C9' }}>
+                  Prompt for Diagram Generation (Edit if needed)
+                </h3>
+                <textarea
+                  value={diagramPrompt}
+                  onChange={(e) => setDiagramPrompt(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#9C83C9] focus:border-[#9C83C9] outline-none transition-all resize-y font-mono text-sm"
+                  rows={20}
+                  placeholder="Diagram generation prompt will appear here..."
+                  disabled={uploading}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleApproveAndGenerate}
+                  disabled={!summaryText.trim() || !diagramPrompt.trim() || uploading}
+                  className="flex-1 py-3 px-6 rounded-lg font-semibold text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]"
+                  style={{ 
+                    backgroundColor: '#9C83C9',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!uploading && summaryText.trim() && diagramPrompt.trim()) {
+                      e.currentTarget.style.backgroundColor = '#8B72B8'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!uploading && summaryText.trim() && diagramPrompt.trim()) {
+                      e.currentTarget.style.backgroundColor = '#9C83C9'
+                    }
+                  }}
+                >
+                  {uploading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating... {progressPercent}%
+                    </span>
+                  ) : (
+                    'Approve & Generate Diagram'
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSummaryEditor(false)
+                    setSummaryText('')
+                    setDiagramPrompt('')
+                  }}
+                  disabled={uploading}
+                  className="px-6 py-3 rounded-lg font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
+                  style={{ 
+                    backgroundColor: '#E5E7EB',
+                    color: '#374151',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Progress Bar */}
+          {uploading && progressPercent > 0 && (
+            <div className="mt-4">
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className="h-2.5 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${progressPercent}%`,
+                    backgroundColor: '#9C83C9'
+                  }}
+                ></div>
+              </div>
+            </div>
+          )}
+
+          {/* Progress Messages */}
+          {uploading && progressMessages.length > 0 && (
+            <div className="mt-6 max-h-64 overflow-y-auto space-y-2">
+              {progressMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-lg text-sm flex items-start ${
+                    msg.status === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
+                    msg.status === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
+                    msg.status === 'warning' ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' :
+                    'bg-blue-50 text-blue-800 border border-blue-200'
+                  }`}
+                >
+                  <span className="mr-2">
+                    {msg.status === 'success' ? '✓' :
+                     msg.status === 'error' ? '❌' :
+                     msg.status === 'warning' ? '⚠️' :
+                     'ℹ️'}
+                  </span>
+                  <span className="flex-1">{msg.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (

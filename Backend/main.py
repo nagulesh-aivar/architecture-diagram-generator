@@ -7,15 +7,22 @@ import sys
 import shutil
 import subprocess
 import json
+import re
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List
 import uuid
+from datetime import datetime
+import io
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
+import asyncio
 from pydantic import BaseModel
 import uvicorn
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
 
 # Add parent directory to path to import pdf_extractor
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -40,10 +47,180 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR = Path(__file__).parent / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# S3 Configuration
+S3_BUCKET_NAME = "architecture-diagrams-dump"
+S3_REGION = "us-east-1"
+S3_PREFIX = "diagrams/"
+
+# Initialize S3 client
+try:
+    s3_client = boto3.client('s3', region_name=S3_REGION)
+    print(f"S3 client initialized for bucket: {S3_BUCKET_NAME}")
+except Exception as e:
+    print(f"Warning: S3 client initialization failed: {e}")
+    s3_client = None
+
 
 class DiagramRequest(BaseModel):
     aws_region: Optional[str] = "us-east-1"
     bedrock_model_id: Optional[str] = "anthropic.claude-3-sonnet-20240229-v1:0"
+
+
+def convert_markdown_to_readable_text(markdown_text: str) -> str:
+    """
+    Convert markdown-formatted summary text into plain, human-readable text
+    suitable for diagram generation prompts.
+    
+    Args:
+        markdown_text: Markdown-formatted text with headers, tables, code blocks, etc.
+    
+    Returns:
+        Plain text description of the architecture
+    """
+    text = markdown_text
+    
+    # Remove code blocks but extract their content as descriptions
+    code_block_pattern = r'```[\w]*\n(.*?)```'
+    def replace_code_block(match):
+        code_content = match.group(1).strip()
+        # Convert code blocks to descriptive text
+        if 'flowchart' in code_content.lower() or 'graph' in code_content.lower():
+            return "The architecture follows a workflow pattern."
+        elif '┌' in code_content or '│' in code_content:
+            return "The system has a structured architecture layout."
+        else:
+            return f"The system includes: {code_content[:100]}"
+    
+    text = re.sub(code_block_pattern, replace_code_block, text, flags=re.DOTALL)
+    
+    # Convert markdown headers to plain text sections
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'\1:', text, flags=re.MULTILINE)
+    
+    # Convert markdown tables to readable text
+    lines = text.split('\n')
+    result_lines = []
+    in_table = False
+    table_headers = []
+    table_rows = []
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        # Check if this is a table row
+        if '|' in line and line.strip().startswith('|'):
+            # Extract cells from table row
+            cells = [cell.strip() for cell in line.split('|')[1:-1]]  # Remove first/last empty cells
+            
+            # Check if this is a separator row
+            if all(cell.replace('-', '').replace(':', '').replace(' ', '') == '' for cell in cells):
+                in_table = True
+                i += 1
+                continue
+            
+            if in_table:
+                if not table_headers:
+                    # First row after separator is headers
+                    table_headers = cells
+                else:
+                    # Data row
+                    table_rows.append(cells)
+            else:
+                # Start of a new table
+                table_headers = cells
+                in_table = True
+            i += 1
+            continue
+        else:
+            # Not a table row - process accumulated table data
+            if in_table and table_headers:
+                # Convert table to readable text
+                for row in table_rows:
+                    if len(row) == len(table_headers):
+                        # Create readable pairs
+                        pairs = []
+                        for j in range(len(table_headers)):
+                            if j < len(row) and row[j].strip():
+                                pairs.append(f"{table_headers[j]}: {row[j]}")
+                        if pairs:
+                            result_lines.append(". ".join(pairs) + ".")
+                    elif len(row) > 0:
+                        # Just list the values
+                        result_lines.append(". ".join([cell for cell in row if cell.strip()]) + ".")
+                
+                table_headers = []
+                table_rows = []
+                in_table = False
+            
+            result_lines.append(line)
+            i += 1
+    
+    # Handle any remaining table data
+    if in_table and table_headers:
+        for row in table_rows:
+            if len(row) == len(table_headers):
+                pairs = []
+                for j in range(len(table_headers)):
+                    if j < len(row) and row[j].strip():
+                        pairs.append(f"{table_headers[j]}: {row[j]}")
+                if pairs:
+                    result_lines.append(". ".join(pairs) + ".")
+    
+    text = '\n'.join(result_lines)
+    
+    # Remove markdown table separators
+    text = re.sub(r'^\|[\s\-\|:]+\|$', '', text, flags=re.MULTILINE)
+    
+    # Remove markdown formatting but keep content
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # Bold
+    text = re.sub(r'\*(.+?)\*', r'\1', text)  # Italic
+    text = re.sub(r'`(.+?)`', r'\1', text)  # Inline code
+    text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)  # Links
+    
+    # Convert bullet points to sentences
+    text = re.sub(r'^[\s]*[-*+]\s+(.+)$', r'\1.', text, flags=re.MULTILINE)
+    
+    # Convert numbered lists to sentences
+    text = re.sub(r'^\d+\.\s+(.+)$', r'\1.', text, flags=re.MULTILINE)
+    
+    # Clean up multiple blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # Remove ASCII art boxes
+    text = re.sub(r'┌[─┐└┘│├┤┬┴┼]+┐', '', text)
+    text = re.sub(r'└[─┐└┘│├┤┬┴┼]+┘', '', text)
+    text = re.sub(r'│[^│\n]*│', '', text)
+    text = re.sub(r'├[─┐└┘│├┤┬┴┼]+┤', '', text)
+    
+    # Clean up remaining markdown artifacts
+    text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^===+$', '', text, flags=re.MULTILINE)
+    
+    # Remove empty lines at start/end
+    text = text.strip()
+    
+    # Ensure sentences end properly
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            cleaned_lines.append('')
+            continue
+        
+        # Add period if line doesn't end with punctuation and is not a header
+        if not line.endswith(('.', ':', '!', '?', ';')) and not line.endswith(':'):
+            line += '.'
+        
+        cleaned_lines.append(line)
+    
+    text = '\n'.join(cleaned_lines)
+    
+    # Final cleanup - remove excessive whitespace
+    text = re.sub(r' +', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
 
 
 def find_uvx_command() -> Optional[str]:
@@ -69,10 +246,25 @@ def find_uvx_command() -> Optional[str]:
     return None
 
 
-def generate_diagram_with_strands(summary_text: str, output_path: Path) -> Optional[str]:
+def generate_diagram_with_strands(summary_text: str, output_path: Path, diagram_prompt: Optional[str] = None) -> Optional[str]:
     """
     Generate architecture diagram using strands and MCP (if available).
     Returns path to generated diagram image or None if failed.
+    
+    KNOWN LIMITATION: The AWS Diagram MCP Server (awslabs.aws-diagram-mcp-server) uses
+    AWS standard diagram conventions which include colored fills:
+    - Light green (#F2F6E8) for Public Subnets
+    - Light cyan (#E6F6F7) for Private Subnets
+    - Light blue tints for Availability Zones
+    
+    These defaults may be hardcoded in the MCP server and cannot be overridden via prompt.
+    The prompt explicitly requests white backgrounds, but the tool may ignore these instructions
+    due to its default behavior matching AWS official diagram standards.
+    
+    Potential workarounds:
+    1. Post-process the generated PNG to remove colored fills
+    2. Use a different diagram generation tool that supports fill color control
+    3. Modify the MCP server configuration if it supports customization
     """
     # Find uvx command
     uvx_path = find_uvx_command()
@@ -91,857 +283,162 @@ def generate_diagram_with_strands(summary_text: str, output_path: Path) -> Optio
         from strands import Agent
         from strands.tools.mcp import MCPClient
         
-        # Create prompt for diagram generation
+        # Create prompt for diagram generation - clean and concise
         absolute_output_path = output_path.resolve()
-        # diagram_prompt = f"""Based on the following architecture summary, create a comprehensive AWS architecture diagram and save it as a PNG image file.
-
-        # Architecture Summary:
-        # {summary_text}
-
-        # Requirements:
-        # - Generate a detailed AWS architecture diagram showing all system components and services
-        # - Show data flows and connections between components
-        # - Include all AWS services mentioned
-        # - Show integration points
-        # - Include storage and database components
-        # - Show network architecture
-
-        # IMPORTANT: Save the diagram as a PNG image file at this exact path: {absolute_output_path}
-        # The file must be saved as a PNG image, not a DOT file or any other format."""
         
+        # CRITICAL: Tell the MCP server the EXACT filename to use
+        output_filename = output_path.name  # e.g., "20251223_162757_uuid_diagram.png"
         
-#         diagram_prompt = f"""You are an expert AWS Solutions Architect. Create a professional, production-ready AWS architecture diagram based on the following summary.
+        # Use provided prompt or generate default with detailed component structure
+        if diagram_prompt:
+            # Use custom prompt and replace placeholders with actual summary
+            readable_summary = convert_markdown_to_readable_text(summary_text)
+            final_prompt = diagram_prompt.replace('{readable_summary}', readable_summary).replace('{summary_text}', summary_text)
+            # Add explicit layout and save instructions at the beginning AND end
+            layout_prefix = """
+=== CRITICAL LAYOUT REQUIREMENTS (READ FIRST) ===
+ASPECT RATIO: 16:9 HORIZONTAL LANDSCAPE (width MUST be 1.78x height)
+CANVAS SIZE: Minimum 3840 pixels WIDTH × 2160 pixels HEIGHT
+ORIENTATION: HORIZONTAL (wider than tall) - NEVER VERTICAL
+FLOW DIRECTION: LEFT → RIGHT (not top → bottom)
+ARRANGEMENT: Components spread HORIZONTALLY across the width, grouped in 4-5 COLUMNS
+RANKDIR: LR (Left-to-Right) if using Graphviz
+LAYOUT: Use 'landscape' mode, horizontal orientation
 
-# ARCHITECTURE SUMMARY:
-# {summary_text}
+"""
+            layout_suffix = f"""
 
-# REQUIREMENTS FOR THE DIAGRAM:
+=== CRITICAL REMINDERS (ENFORCE THESE) ===
+1. HORIZONTAL LANDSCAPE ONLY: Width MUST be greater than height
+2. 16:9 ASPECT RATIO: 3840×2160 or 1920×1080 or any 16:9 ratio
+3. LEFT-TO-RIGHT FLOW: Arrange components in horizontal columns, not vertical rows
+4. GRAPHVIZ RANKDIR: If using DOT format, set rankdir=LR (left-to-right)
+5. CANVAS ORIENTATION: landscape="true" or orientation="landscape"
+6. NO VERTICAL STACKING: Spread components horizontally
+7. Save to: {absolute_output_path}
+8. Filename: {output_filename}
+"""
+            final_prompt = layout_prefix + final_prompt + layout_suffix
+        else:
+            # Generate detailed structured prompt with EXTREME emphasis on horizontal layout
+            final_prompt = f"""
+=== CRITICAL: HORIZONTAL LANDSCAPE LAYOUT (16:9) ===
+YOU MUST CREATE A HORIZONTAL LANDSCAPE DIAGRAM.
+- Canvas: 3840 pixels WIDE × 2160 pixels TALL (16:9 aspect ratio)
+- Orientation: LANDSCAPE (wider than tall)
+- Flow: LEFT-TO-RIGHT (not top-to-bottom)
+- Graphviz rankdir: LR (if using DOT format)
+- Layout mode: landscape="true"
 
-# 1. COMPREHENSIVE COVERAGE:
-#    - Include ALL AWS services, components, and resources mentioned in the summary
-#    - Show complete data flow from entry points to storage
-#    - Include all integration points and external systems
-#    - Display security layers, networking, and access controls
+Create a comprehensive AWS architecture diagram based on the following summary.
 
-# 2. PROFESSIONAL LAYOUT:
-#    - Use a clear hierarchical structure (top-to-bottom or left-to-right)
-#    - Group components by function: Presentation Layer → Application Layer → Data Layer
-#    - Use visual grouping with labeled containers (VPCs, Availability Zones, Subnets)
-#    - Maintain consistent spacing and alignment
-#    - Use color coding to distinguish: Public (blue), Private (green), Data (orange), Security (red)
-
-# 3. NETWORK ARCHITECTURE:
-#    - Show VPC structure with public and private subnets
-#    - Display Internet Gateway, NAT Gateway, and Route Tables
-#    - Include Load Balancers (ALB/NLB) and their placement
-#    - Show Security Groups and Network ACLs where relevant
-#    - Indicate Availability Zones and multi-AZ deployments
-
-# 4. COMPUTE & SERVICES:
-#    - EC2 instances with instance types if specified
-#    - Container services (ECS, EKS, Fargate)
-#    - Serverless functions (Lambda)
-#    - Auto Scaling Groups
-#    - API Gateway and service endpoints
-
-# 5. DATA & STORAGE:
-#    - Databases (RDS, DynamoDB, DocumentDB, etc.)
-#    - Caching layers (ElastiCache, CloudFront)
-#    - Object storage (S3 buckets with lifecycle policies if mentioned)
-#    - Data transfer and backup mechanisms
-
-# 6. INTEGRATIONS & EXTERNAL:
-#    - Third-party APIs and services
-#    - On-premises connections (VPN, Direct Connect)
-#    - External users and clients
-#    - SaaS integrations
-
-# 7. SECURITY & MONITORING:
-#    - IAM roles and policies
-#    - AWS WAF, Shield, GuardDuty
-#    - CloudWatch, CloudTrail, X-Ray
-#    - Secrets Manager, KMS
-
-# 8. DATA FLOW:
-#    - Use directional arrows showing request/response flows
-#    - Label connections with protocols (HTTPS, gRPC, MQTT, etc.)
-#    - Show data transformation points
-#    - Indicate synchronous vs asynchronous flows
-
-# 9. VISUAL QUALITY:
-#    - Use official AWS service icons
-#    - High resolution (minimum 1920x1080)
-#    - Clear, readable labels (minimum 12pt font)
-#    - Professional color scheme
-#    - Include a legend if using custom symbols
-
-# 10. OUTPUT FORMAT:
-#     - Generate as a high-quality PNG image file
-#     - Save directly to: {absolute_output_path}
-#     - The file MUST be a valid PNG image (not DOT, not code, not text)
-#     - Ensure the diagram is immediately usable in presentations and documentation
-
-# CRITICAL: Create the actual PNG image file at the specified path. Do not generate code, DOT files, or text descriptions. The output must be a rendered diagram image."""
-
-        
-
-        diagram_prompt = f"""YOU MUST CREATE A COMPLETE AWS ARCHITECTURE DIAGRAM FOLLOWING AWS OFFICIAL STANDARDS!
-
-═══════════════════════════════════════════════════════════════════════════════
-🚨 CRITICAL: NO FILL COLORS - PURE WHITE BACKGROUNDS ONLY 🚨
-═══════════════════════════════════════════════════════════════════════════════
-
-MANDATORY: ALL container boxes MUST have PURE WHITE (#FFFFFF) backgrounds - NO colored fills!
-
-HOW TO SET FILL COLORS CORRECTLY:
-When creating each container box in the diagram tool, you MUST:
-1. Set the "fill" or "background" property to #FFFFFF (white)
-2. Set the "fillColor" property to #FFFFFF (white)
-3. Set the "backgroundColor" property to #FFFFFF (white)
-4. If the tool has a "style" property, set fill: #FFFFFF
-5. DO NOT use any default colors - explicitly set to white
-
-FORBIDDEN COLORS - DO NOT USE THESE:
-✗ NO light green (#F2F6E8) in Public Subnets - use #FFFFFF instead
-✗ NO light cyan (#E6F6F7) in Private Subnets - use #FFFFFF instead
-✗ NO light blue fills in Availability Zones - use #FFFFFF instead
-✗ NO colored backgrounds of ANY kind inside container boxes
-✗ NO tinted colors - ONLY pure white (#FFFFFF)
-
-REQUIRED SETTINGS:
-✓ ONLY borders have colors (green, cyan, purple, etc.)
-✓ ALL container backgrounds MUST be pure WHITE (#FFFFFF) - set explicitly
-✓ Set fill color to #FFFFFF for EVERY container box
-✓ Set background color to #FFFFFF for EVERY container box
-✓ Override any default fill colors to white
-
-This is NON-NEGOTIABLE. If you add ANY colored fill inside boxes, the diagram is INCORRECT and will be rejected.
-
-═══════════════════════════════════════════════════════════════════════════════
-
-CRITICAL AWS STANDARD REQUIREMENTS:
-✓ Use OFFICIAL AWS Architecture Icons (2023+ icon set)
-✓ Use RECTANGULAR boxes with SHARP CORNERS (NO rounded/curved boxes)
-✓ PURE WHITE backgrounds ONLY - NO fill colors inside any container boxes
-✓ MINIMAL ARROWS - only show essential data flows (Users→Edge→App→Database)
-✓ Simple arrow style (solid, black/gray) - NO color coding, NO excessive labels
-✓ Follow AWS Well-Architected Framework diagram conventions
-✓ Professional enterprise-grade appearance matching AWS documentation
-
-✗ DO NOT use rounded/curved boxes
-✗ DO NOT use custom icon styles
-✗ DO NOT add colored fills inside container boxes - ONLY pure white (#FFFFFF)
-✗ DO NOT deviate from AWS standard diagram conventions
-✗ DO NOT create flowchart-style diagrams
-✗ DO NOT add excessive arrows - keep it minimal and simple
-✗ DO NOT add arrows for monitoring/logging/security services
-
-IMMEDIATE TASK: Use the AWS diagram MCP tools available to you to generate a FULL VISUAL AWS ARCHITECTURE DIAGRAM with:
-✓ Official AWS service icons (EC2, RDS, S3, Lambda, etc.) from AWS Architecture Icons
-✓ RECTANGULAR container boxes with SHARP CORNERS (AWS Cloud, Region, VPC, AZs, Subnets)
-✓ MINIMAL arrows - only essential flows (Users→Edge→App→Database), simple solid style
-✓ NO arrows for monitoring/logging/security services
-✓ Professional labels matching AWS documentation style
-✓ Horizontal 16:9 layout (3840×2160 pixels at 300 DPI for maximum clarity)
-✓ HIGH QUALITY export (300 DPI, no compression, 24-bit color, anti-aliasing enabled)
-
-STEP 1: ANALYZE the architecture summary below and identify ALL AWS services, components, and data flows.
-STEP 2: SET HIGH QUALITY CANVAS SETTINGS:
-   - Set canvas size to 3840×2160 pixels (width × height)
-   - Set resolution/DPI to 300 DPI (dots per inch) for maximum clarity
-   - Enable anti-aliasing for smooth edges
-   - Set color depth to 24-bit or 32-bit (full color)
-STEP 3: USE the AWS diagram MCP tool to GENERATE a complete visual diagram following AWS official standards.
-STEP 4: ENSURE all boxes are RECTANGULAR with SHARP CORNERS (not rounded).
-STEP 5: CRITICAL - SET ALL BOX FILL COLORS TO WHITE:
-   - When creating containers, explicitly set fill color to #FFFFFF (white)
-   - For AWS Cloud container: fill = #FFFFFF
-   - For Region container: fill = #FFFFFF
-   - For VPC container: fill = #FFFFFF
-   - For Availability Zone containers: fill = #FFFFFF
-   - For Public Subnet containers: fill = #FFFFFF (NOT #F2F6E8)
-   - For Private Subnet containers: fill = #FFFFFF (NOT #E6F6F7)
-   - If the tool has a "background color" or "fill color" property, set it to #FFFFFF
-   - If the tool defaults to colored fills, OVERRIDE it to white (#FFFFFF)
-STEP 6: EXPORT WITH HIGH QUALITY SETTINGS:
-   - Set PNG export quality to 100% or maximum
-   - Set compression to NONE or LOWEST (do NOT use high compression)
-   - Ensure 300 DPI resolution is maintained in export
-   - Enable anti-aliasing for crisp edges
-   - Use lossless PNG format (not lossy)
-STEP 7: SAVE the diagram as a HIGH-QUALITY PNG to: {absolute_output_path}
-
-You are an expert AWS Solutions Architect creating a COMPREHENSIVE, DETAILED, ENTERPRISE‑GRADE architecture diagram using OFFICIAL AWS ARCHITECTURE DIAGRAM STANDARDS. You MUST follow AWS official diagramming conventions exactly as used in AWS documentation, whitepapers, and Well-Architected Framework materials.
-
-MANDATORY AWS DIAGRAM STANDARDS:
-You MUST use the available AWS diagram generation tools to create a diagram that matches AWS official architecture diagrams:
-
-1. OFFICIAL AWS ICONS:
-   - Use ONLY official AWS Architecture Icons (latest icon set from AWS Architecture Center)
-   - Each AWS service must use its official icon (orange for compute, blue for database, green for storage, purple for network, red for security)
-   - Icon size: consistent 64×64 pixels or similar
-   - NO custom icons, NO generic shapes for services
-
-2. RECTANGULAR BOXES WITH SHARP CORNERS (CRITICAL):
-   - ALL container boxes MUST be RECTANGULAR with SHARP 90-degree CORNERS
-   - NO rounded corners, NO curved boxes, NO ellipses, NO circles for containers
-   - Box types needed:
-     * AWS Cloud: Large rectangular box, dark border (#232F3E), PURE WHITE fill (#FFFFFF)
-     * Region: Rectangular box, dashed border, PURE WHITE fill (#FFFFFF)
-     * VPC: Rectangular box, solid purple border (#8C4FFF), PURE WHITE fill (#FFFFFF)
-     * Availability Zones: Rectangular boxes, dashed light blue border, PURE WHITE fill (#FFFFFF)
-     * Subnets: Rectangular boxes, solid borders (green for public, cyan for private), PURE WHITE fill (#FFFFFF) - NO tinted fills
-     * Security Groups: Optional thin rectangular overlays, PURE WHITE fill (#FFFFFF)
-   - All boxes must have SHARP CORNERS (corner radius = 0)
-   - CRITICAL: Set fill color to #FFFFFF (white) for EVERY box - NO exceptions
-
-3. AWS STANDARD COLORS:
-   CRITICAL: NO FILL COLORS - WHITE BACKGROUNDS ONLY!
-   
-   - Canvas Background: Pure white (#FFFFFF)
-   - AWS Cloud border: Dark gray (#232F3E), 2-3px solid
-   - AWS Cloud background: MUST be pure WHITE (#FFFFFF) - NO colored fill
-   - Region border: Teal (#00A4A6) or blue, 2px dashed
-   - Region background: MUST be pure WHITE (#FFFFFF) - NO colored fill
-   - VPC border: Purple (#8C4FFF), 2-3px solid
-   - VPC background: MUST be pure WHITE (#FFFFFF) - NO colored fill
-   - AZ border: Light blue (#147EBA), 2px dashed
-   - AZ background: MUST be pure WHITE (#FFFFFF) - NO light blue fill, NO colored fill
-   - Public Subnet border: Green (#7AA116), 2px solid
-   - Public Subnet background: MUST be pure WHITE (#FFFFFF) - NO light green fill (#F2F6E8), NO colored fill
-   - Private Subnet border: Cyan (#00A4A6), 2px solid
-   - Private Subnet background: MUST be pure WHITE (#FFFFFF) - NO light cyan fill (#E6F6F7), NO colored fill
-   
-   CRITICAL RULES:
-   - ALL container boxes MUST have background color set to #FFFFFF (white)
-   - DO NOT use #F2F6E8 (light green) for Public Subnets
-   - DO NOT use #E6F6F7 (light cyan) for Private Subnets
-   - DO NOT use any tinted colors - ONLY pure white (#FFFFFF)
-   - ONLY borders have colors - NO fill colors inside any container boxes
-   - If you see ANY colored background inside boxes, it's INCORRECT
-
-4. PROFESSIONAL AWS STYLING:
-   - Typography: Clean sans-serif (Arial, Amazon Ember, Helvetica)
-   - Label placement: Top-left for containers, below/beside icons for services
-   - Spacing: Generous whitespace, aligned to grid
-   - Lines/Arrows: Straight lines with 90-degree angles or smooth curves (NOT hand-drawn style)
-   - Arrow style: Simple solid/dashed lines with standard arrowheads
-
-CRITICAL REQUIREMENTS:
-1. CREATE THE ACTUAL DIAGRAM - not just a title, not just text, but a full visual architecture diagram
-2. USE OFFICIAL AWS SERVICE ICONS - show proper AWS icons for each service
-3. DRAW RECTANGULAR CONTAINERS WITH SHARP CORNERS - NO rounded boxes, follow AWS standards exactly
-4. ADD DATA FLOW ARROWS - connect services with clean, professional arrows
-5. USE PROPER LAYOUT - horizontal 16:9 format with left-to-right flow
-6. MATCH AWS DOCUMENTATION STYLE - the diagram should look like it came from AWS official documentation
-
-ARCHITECTURE SUMMARY TO DIAGRAM:
+ARCHITECTURE SUMMARY:
 {summary_text}
 
-========================================
-ABSOLUTE STRUCTURAL REQUIREMENTS
-========================================
-
-1. MANDATORY LANDSCAPE ORIENTATION - 16:9 HORIZONTAL LAYOUT (HIGH QUALITY)
-   CRITICAL: The diagram MUST be in LANDSCAPE orientation (WIDE, NOT TALL) with HIGH RESOLUTION.
-   
-   - CANVAS SIZE: Use exactly 3840×2160 pixels (width × height) - PREFERRED for maximum clarity
-   - ALTERNATIVE: 1920×1080 pixels (if 4K is not available)
-   - RESOLUTION/DPI: Set to 300 DPI (dots per inch) for print-quality clarity
-   - ASPECT RATIO: EXACTLY 16:9 (landscape/horizontal)
-   - WIDTH MUST BE GREATER THAN HEIGHT (e.g., 3840 WIDTH × 2160 HEIGHT)
-   - THIS IS LANDSCAPE: Width=3840, Height=2160 ✓
-   - THIS IS WRONG PORTRAIT: Width=2160, Height=3840 ✗
-   - QUALITY SETTINGS: Maximum quality, no compression, 24-bit or 32-bit color depth
-   
-   FLOW DIRECTION: LEFT TO RIGHT
-   - Data flows HORIZONTALLY from LEFT to RIGHT across the diagram
-   - Users/External systems on the LEFT side
-   - Edge services (CloudFront, ALB) in the LEFT-CENTER
-   - Application services in the CENTER
-   - Data services (RDS, S3) on the RIGHT side
-   - The architecture MUST flow: LEFT → CENTER → RIGHT
-   
-   HORIZONTAL ARRANGEMENT:
-   - Place external users/clients on the FAR LEFT (outside AWS Cloud)
-   - Place edge/ingress services (API Gateway, ALB, CloudFront) in LEFT zone
-   - Place compute/application (EC2, ECS, Lambda) in CENTER zone
-   - Place data/storage (RDS, DynamoDB, S3) in RIGHT zone
-   - Place monitoring/security services along the TOP or BOTTOM edge
-   - Availability Zones should be arranged side-by-side HORIZONTALLY, not stacked vertically
-
-2. MANDATORY TOP-LEVEL CONTAINERS (NO EXCEPTIONS)
-   You MUST create and clearly show ALL of the following containers as distinct, labeled boxes:
-
-   A. AWS CLOUD CONTAINER (OUTERMOST)
-      - REQUIRED: Draw one outermost container labeled exactly "AWS Cloud".
-      - This box MUST be visible, clearly bordered, and encompass the entire architecture.
-      - It MUST be the single largest bounding box around everything else.
-      - This container should span HORIZONTALLY across most of the 16:9 canvas width.
-
-   B. REGION CONTAINER (INSIDE AWS CLOUD)
-      - REQUIRED: Draw a single Region container INSIDE the "AWS Cloud" box.
-      - Label it clearly, for example: "Region: us-east-1".
-      - There must be exactly ONE Region container in this diagram.
-      - This Region container MUST sit fully inside "AWS Cloud" and fully outside the VPC.
-      - This container should be WIDE (landscape), utilizing the horizontal space.
-
-   C. SINGLE VPC CONTAINER (INSIDE REGION)
-      - REQUIRED: Draw exactly ONE VPC container inside the Region container.
-      - Label it clearly, for example: "VPC: 10.0.0.0/16".
-      - All AZs, subnets, and VPC-scoped resources MUST be inside this single VPC box.
-      - There MUST NOT be multiple VPCs unless explicitly described, and even then this diagram still requires at least one clearly labeled primary VPC.
-      - The hierarchy MUST be: AWS Cloud → Region → VPC (in that order, with visible nesting).
-      - The VPC should be WIDE (landscape), spanning most of the horizontal space.
-
-   CRITICAL: If you generate a diagram that does not show:
-   - An OUTERMOST "AWS Cloud" box,
-   - A single "Region" box inside that AWS Cloud box, and
-   - A single "VPC" box inside that Region box,
-   then the diagram is INVALID. You must not produce such a diagram.
-
-3. STRICT CONTAINER HIERARCHY (MANDATORY)
-   The COMPLETE hierarchy MUST be:
-
-   1) AWS Cloud (outermost box) - SPANS HORIZONTALLY
-   2) Region (inside AWS Cloud) - SPANS HORIZONTALLY
-   3) VPC (inside Region) - SPANS HORIZONTALLY
-   4) Availability Zones (inside VPC, arranged side-by-side HORIZONTALLY, not vertically)
-   5) Subnets (inside each Availability Zone, can be stacked vertically within each AZ)
-   6) Auto Scaling Groups (inside subnets if applicable)
-   7) Individual resources (inside the appropriate subnet / group)
-
-   No containers may "float" outside their correct parent. No AZ or subnet may exist outside the VPC. No VPC may exist outside the Region. No Region may exist outside AWS Cloud.
-
-4. WHITE BACKGROUND (MANDATORY)
-   - The ENTIRE diagram background MUST be pure white (#FFFFFF).
-   - There MUST NOT be gradients, patterns, or off-white backgrounds.
-   - All containers sit on top of this pure white background.
-
-========================================
-COMPREHENSIVE COVERAGE & QUALITY
-========================================
-
-CRITICAL COVERAGE:
-1. COMPREHENSIVE ARCHITECTURE
-   - Include EVERY AWS service, component, resource, integration, security layer, monitoring component, and data store mentioned in {summary_text}.
-   - Do NOT create a simplified, high-level “marketing” diagram with only a few components. This MUST be a production-grade, detailed architecture.
-
-2. NO OMISSIONS
-   - For each service or feature described in the summary, show its corresponding icon and placement in the architecture.
-   - If multiple environments or tiers (edge, web, app, data, analytics, shared services) are mentioned, show all of them.
-
-3. PRODUCTION-READY DETAIL
-   - Show multi-AZ, redundancy, failover, and DR patterns where described.
-   - Show all key data flows, integration points, and dependencies.
-   - Show security controls and monitoring paths.
-
-========================================
-CONTAINER DETAILS & COLORS (AWS STANDARD)
-========================================
-
-CRITICAL: ALL containers MUST use RECTANGULAR shapes with SHARP 90-degree CORNERS.
-NO rounded corners, NO curved edges, NO ellipses. This is AWS standard.
-
-MANDATORY BOXES - ALL CONTAINERS MUST BE DRAWN:
-- AWS Cloud container (OUTERMOST) - MANDATORY, must be drawn
-- Region container (INSIDE AWS Cloud) - MANDATORY, must be drawn
-- VPC container (INSIDE Region) - MANDATORY, must be drawn
-- Availability Zone containers (INSIDE VPC) - MANDATORY, at least 2-3 AZs must be drawn
-- Subnet containers (INSIDE EACH AZ) - MANDATORY, must be drawn for each subnet
-- ALL boxes are REQUIRED - do not skip any container level
-
-NO FILL COLORS - CRITICAL REQUIREMENT:
-- ALL container backgrounds MUST be WHITE (#FFFFFF) or TRANSPARENT
-- ONLY borders have colors - NO fill colors inside any container boxes
-- Public Subnets: Green border, WHITE background (NO light green fill)
-- Private Subnets: Cyan border, WHITE background (NO light cyan fill)
-- This is non-negotiable - boxes must be empty/transparent inside
-
-AWS Cloud Container (OUTERMOST)
-- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
-- Label: "AWS Cloud" at top-left
-- Border: Dark gray (#232F3E), 2-3px solid, clearly visible
-- Background: White (#FFFFFF)
-- Contains EVERYTHING else
-- MUST be rectangular, not rounded
-
-Region Container (INSIDE AWS Cloud)
-- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
-- Label: "Region: <name>" (e.g., "Region: us-east-1") at top-left
-- Border: Teal/Blue (#00A4A6), 2px dashed
-- Background: White (#FFFFFF)
-- Contains the VPC and all regional/global services drawn in this diagram
-- MUST be rectangular, not rounded
-
-VPC Container (INSIDE Region)
-- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
-- Label: "VPC: <CIDR>" (e.g., "VPC: 10.0.0.0/16") at top-left
-- Border: Purple (#8C4FFF), 2-3px solid
-- Background: White (#FFFFFF)
-- Contains all AZs, subnets, and VPC‑scoped resources
-- MUST be rectangular, not rounded
-
-Availability Zone Containers (INSIDE VPC)
-- Shape: RECTANGLES with SHARP CORNERS (corner radius = 0)
-- At least 2 (preferably 2–3) AZs side-by-side horizontally: e.g., "Availability Zone 1A", "Availability Zone 1B", "Availability Zone 1C"
-- Border: Light blue (#147EBA), 2px dashed
-- Background: White (#FFFFFF)
-- Each AZ contains its subnets arranged vertically
-- MUST be rectangular, not rounded
-
-Subnet Containers (INSIDE EACH AZ)
-CRITICAL: ALL subnets MUST have PURE WHITE (#FFFFFF) backgrounds - NO colored fills!
-
-- Shape: RECTANGLES with SHARP CORNERS (corner radius = 0)
-- Public Subnet:
-  - Label: "Public Subnet"
-  - Border: Green (#7AA116), 2px solid
-  - Background: MUST be pure WHITE (#FFFFFF) - NO light green fill, NO colored fill of any kind
-  - Fill color: #FFFFFF (white) - set explicitly, do NOT use any tinted colors
-  - Contains NAT Gateway, IGW attachments, public ENIs, and public-facing load balancers if applicable
-  - MUST be rectangular, not rounded
-  - CRITICAL: Background color MUST be #FFFFFF - if you see any green tint, it's WRONG
-
-- Private Application Subnet:
-  - Label: "Private Subnet (Application)" or similar
-  - Border: Cyan (#00A4A6), 2px solid
-  - Background: MUST be pure WHITE (#FFFFFF) - NO light cyan fill, NO colored fill of any kind
-  - Fill color: #FFFFFF (white) - set explicitly, do NOT use any tinted colors
-  - Contains ECS services, EC2 application servers, ASGs, etc.
-  - MUST be rectangular, not rounded
-  - CRITICAL: Background color MUST be #FFFFFF - if you see any cyan tint, it's WRONG
-
-- Private Database/Storage Subnet:
-  - Label: "Private Subnet (Database/Storage)" or similar
-  - Border: Cyan (#00A4A6), 2px solid
-  - Background: MUST be pure WHITE (#FFFFFF) - NO light cyan fill, NO colored fill of any kind
-  - Fill color: #FFFFFF (white) - set explicitly, do NOT use any tinted colors
-  - Contains RDS, Aurora, DocumentDB, ElastiCache, and other DB/storage resources
-  - MUST be rectangular, not rounded
-  - CRITICAL: Background color MUST be #FFFFFF - if you see any cyan tint, it's WRONG
-
-Auto Scaling Groups (INSIDE Subnets where applicable)
-- Shape: RECTANGLE with SHARP CORNERS (corner radius = 0)
-- Container label: "Auto Scaling Group – <Role>"
-- Border: Orange (#D86613), 2px dashed
-- Background: White or transparent
-- Contains multiple EC2 or container icons representing scaled instances/tasks
-- MUST be rectangular, not rounded
-
-Individual Resources
-- Place EC2, ECS, Lambda, RDS, S3, DynamoDB, API Gateway, ALB/NLB, SQS, SNS, EventBridge, Secrets Manager, KMS, WAF, Shield, GuardDuty, Config, CloudTrail, CloudWatch, etc. in their appropriate containers.
-- Use OFFICIAL AWS ARCHITECTURE ICONS (from AWS Architecture Icons set), consistent size (approx. 64x64px).
-- Icons should be the official AWS service icons with proper colors and styling.
-- Provide short, clear labels under or beside each icon.
-- Icons are typically square or follow AWS icon standard shapes (NOT rounded boxes around them).
-
-Global / Management Services (INSIDE Region, OUTSIDE VPC)
-- Place IAM, CloudTrail, CloudWatch, AWS Config, GuardDuty, Security Hub, etc. along the top of the Region container.
-- Arrange them horizontally with icons and labels.
-- Use official AWS icons for these services.
-
-External Entities (OUTSIDE AWS Cloud)
-- Place users, clients, administrators, external systems, SaaS integrations, and partner services outside the "AWS Cloud" container.
-- Use simple icons or shapes (e.g., user icon, computer icon, building icon).
-- Connect them via arrows to edge services such as CloudFront, Route 53, API Gateway, ALB, or VPN/Direct Connect.
-
-CRITICAL STYLING REMINDER:
-- ALL container boxes MUST be RECTANGLES with SHARP CORNERS (90-degree angles, NO rounding)
-- This is non-negotiable for AWS standard diagrams
-- If the diagram tool defaults to rounded corners, you MUST override it to use sharp corners
-- Set border-radius = 0 or corner-radius = 0 for all container shapes
-
-═══════════════════════════════════════════════════════════════════════════════
-CRITICAL: NO FILL COLORS - WHITE BACKGROUNDS ONLY
-═══════════════════════════════════════════════════════════════════════════════
-- ALL container backgrounds MUST be pure WHITE (#FFFFFF) - NO exceptions
-- DO NOT use #F2F6E8 (light green) for Public Subnets
-- DO NOT use #E6F6F7 (light cyan) for Private Subnets
-- DO NOT use ANY tinted colors - ONLY pure white (#FFFFFF)
-- Set fill color explicitly to #FFFFFF for ALL containers
-- Only borders should have colors - NO colored fills inside boxes
-- Boxes should be EMPTY WHITE with only colored borders visible
-- If the diagram tool defaults to colored fills, you MUST override it to white (#FFFFFF)
-- This is ABSOLUTELY MANDATORY - colored fills make the diagram INCORRECT
-
-========================================
-NETWORKING & DATA FLOWS
-========================================
-
-CRITICAL: HORIZONTAL LEFT-TO-RIGHT FLOW (MANDATORY)
-- The ENTIRE architecture MUST flow HORIZONTALLY from LEFT to RIGHT - NOT top to bottom
-- This is a LANDSCAPE diagram - components MUST be arranged horizontally across the width
-- MANDATORY LAYOUT STRUCTURE:
-  1. LEFT EDGE: External users/clients (outside AWS Cloud) - place on the FAR LEFT
-  2. LEFT ZONE (20% width): Edge/Ingress services (CloudFront, Route53, API Gateway, ALB, IGW) - arranged horizontally
-  3. CENTER-LEFT ZONE (30% width): Application Layer (ECS, EC2, Lambda, ASG) - arranged horizontally
-  4. CENTER-RIGHT ZONE (30% width): Data processing, caching, messaging (ElastiCache, SQS, SNS) - arranged horizontally
-  5. RIGHT ZONE (20% width): Data Storage (RDS, DynamoDB, S3, databases) - arranged horizontally
-- Availability Zones MUST be side-by-side HORIZONTALLY (not stacked vertically)
-- Subnets within each AZ can be stacked vertically, but AZs themselves must be horizontal
-- All major components flow LEFT → RIGHT across the canvas width
-- Arrows MUST point LEFT → RIGHT showing horizontal data flow progression
-- NO vertical stacking of major components - everything flows horizontally
-- The diagram should read like a book: left to right, not top to bottom
-
-Networking (MINIMAL ARROWS):
-- Internet Gateway:
-  - One per VPC, attached to the VPC border.
-  - Show as icon - connect with ONE arrow to ALB/Load Balancer if needed.
-
-- NAT Gateway:
-  - One per AZ in a Public Subnet (if used).
-  - Show as icon - NO arrows needed (it's implied for outbound traffic).
-
-- Load Balancers:
-  - Place ALBs/NLBs at the edge of the VPC or in public subnets.
-  - Connect with ONE arrow to application layer (EKS/EC2/Lambda).
-
-- VPC Peering / Transit / VPN / Direct Connect:
-  - Show as icons or labels only - NO arrows unless critical to understanding the architecture.
-
-Security:
-- Show security services (IAM, WAF, Shield, KMS, Secrets Manager) as ICONS ONLY
-- DO NOT add arrows connecting security services - they clutter the diagram
-- Show WAF and Shield in front of CloudFront or ALBs if used (as icons, minimal arrows)
-- Show IAM, KMS, Secrets Manager as icons placed near relevant services (no arrows)
-- Security groups and Network ACLs can be shown as labels or icons, but NO arrows
-- Keep security services visible but not connected with arrows - they're supporting services
-
-Data Flows (MINIMAL ARROWS - SIMPLIFIED):
-CRITICAL: Use MINIMAL arrows - only show ESSENTIAL data flows. Too many arrows confuse users.
-
-MINIMAL ARROW RULES:
-1. ONLY show PRIMARY data flows - skip secondary/tertiary connections
-2. Show ONE arrow per major flow path - don't duplicate arrows for the same connection
-3. Remove arrows for:
-   - Monitoring/logging connections (CloudWatch, CloudTrail, X-Ray) - these clutter the diagram
-   - Security/authentication internal flows (IAM, KMS, Secrets Manager) - show as icons only
-   - Backup/replication flows unless critical to understanding
-   - Internal service-to-service calls within the same tier
-
-ESSENTIAL ARROWS TO SHOW (ONLY THESE):
-1. User → Edge Services (Route53 → CloudFront → ALB/WAF) - ONE arrow chain
-2. Edge → Application Layer (ALB → EKS/EC2/Lambda) - ONE arrow per service
-3. Application → Database (App → RDS/DynamoDB) - ONE arrow per database
-4. Application → Cache (App → ElastiCache) - ONE arrow if used
-5. Database Replication (Primary → Replica) - ONE arrow if multi-AZ
-6. External Integrations (Payment Gateways, Banking APIs → WAF/API Gateway) - ONE arrow per integration
-
-ARROW STYLING (SIMPLIFIED):
-- Use ONE simple arrow style: Solid black or dark gray arrows
-- NO color coding - keep it simple
-- NO labels on arrows unless absolutely critical for understanding
-- Straight lines preferred - avoid complex curved paths
-- Arrow thickness: Medium (2px) - not too thick, not too thin
-
-DO NOT SHOW:
-- Monitoring arrows (CloudWatch, CloudTrail, X-Ray connections)
-- Security service internal flows (IAM, KMS, Secrets Manager connections)
-- Backup/replication arrows (unless critical)
-- Multiple arrows between same two services
-- Arrow labels for obvious connections (e.g., "HTTPS" is obvious)
-- Dotted/dashed arrows (use solid only for simplicity)
-
-========================================
-LAYOUT & DESIGN (16:9, CLEAN)
-========================================
-
-Layout (MUST MATCH 16:9 LANDSCAPE - LEFT TO RIGHT):
-- Use full width of the 16:9 canvas (3840×2160 or 1920×1080).
-- HORIZONTAL LEFT-TO-RIGHT ORIENTATION is MANDATORY:
-  - AWS Cloud fills the canvas horizontally (wide rectangle spanning full width).
-  - Region inside AWS Cloud, spanning the full width horizontally.
-  - VPC inside Region, spanning most of the width horizontally.
-  - AZs MUST be arranged side-by-side HORIZONTALLY within the VPC (NOT stacked vertically).
-  - Within each AZ, subnets can be stacked vertically, but AZs themselves flow left-to-right.
-  - All major components arranged horizontally: Users (left) → Edge (left-center) → App (center) → Data (right).
-  - The entire diagram reads LEFT → RIGHT, NOT top → bottom.
-
-Grid and Alignment:
-- Align all containers and icons to a consistent grid (e.g., 20px).
-- Maintain generous white space (40px+ between major sections, 20–30px within groups).
-- No overlapping boxes or icons; no elements touching borders.
-- Left-align labels; center icons within containers.
-
-Colors:
-- Background: #FFFFFF (pure white) for the full canvas.
-- Region border: Dark or teal as specified, clearly visible.
-- VPC border: Purple (#8C4FFF), 2px solid.
-- AZ border: Light blue (#147EBA), 2px dashed.
-- Subnet borders: Green for public (#7AA116), Cyan for private (#00A4A6).
-- Subnet backgrounds: WHITE (#FFFFFF) or TRANSPARENT - NO colored fills inside boxes.
-- Text color: Dark gray (#2D3436) or black (#000000).
-- CRITICAL: Only borders have colors - NO fill colors inside any container boxes.
-
-Typography:
-- Region / VPC labels: Bold, ~18pt.
-- Subnet labels: Bold, ~14pt.
-- Service labels: Regular, ~12pt.
-- Connection labels: Regular, ~10pt.
-- Use plain, professional sans-serif font (e.g., Arial, Helvetica).
-- NO emojis, NO decorative fonts, NO special characters in labels.
-
-========================================
-OUTPUT SPECIFICATIONS (MANDATORY - HIGH QUALITY)
-========================================
-
-- Output: ONE HIGH-RESOLUTION PNG image file ONLY with MAXIMUM CLARITY.
-- CRITICAL ASPECT RATIO: EXACTLY 16:9 LANDSCAPE (HORIZONTAL, WIDE format)
-  * WIDTH > HEIGHT (e.g., 3840 pixels wide × 2160 pixels high)
-  * NOT 9:16 portrait (that would be 2160 wide × 3840 high) ✗
-  * MUST BE 16:9 landscape (3840 wide × 2160 high) ✓
-- Valid landscape resolutions:
-  * PREFERRED: 3840×2160 pixels (width × height) at 300 DPI
-  * ACCEPTABLE: 1920×1080 pixels (width × height) at 300 DPI
-  * ACCEPTABLE: 2560×1440 pixels (width × height) at 300 DPI
-- INVALID portrait resolutions (DO NOT USE):
-  * 2160×3840 ✗ (this is portrait 9:16, WRONG)
-  * 1080×1920 ✗ (this is portrait 9:16, WRONG)
-- QUALITY SETTINGS (CRITICAL FOR CLARITY):
-  * Resolution/DPI: 300 DPI (dots per inch) - MANDATORY for sharp, clear images
-  * Compression: NONE or LOWEST - do NOT use high compression (it reduces clarity)
-  * Color depth: 24-bit or 32-bit (full color, not 8-bit)
-  * Anti-aliasing: ENABLED (for smooth, crisp edges)
-  * Export quality: 100% or maximum quality setting
-  * PNG format: Use lossless PNG (not lossy compression)
-- Background: Pure white (#FFFFFF).
-- File format: PNG (valid image file, not code or text).
-- Save to EXACT path: {absolute_output_path}
-- The diagram MUST be:
-  - CLEAN (no clutter, no overlapping).
-  - COMPREHENSIVE (all elements from {summary_text}).
-  - PRODUCTION-READY (suitable for senior stakeholders and documentation).
-  - HORIZONTAL (landscape, wider than tall, flows LEFT to RIGHT).
-  - HIGH QUALITY (300 DPI, no compression, maximum clarity).
-
-DO NOT:
-- Produce DOT, Mermaid, PlantUML, or any text-based diagram syntax.
-- Output textual description instead of the PNG.
-- Use emojis or decorative graphics.
-- Change the aspect ratio away from 16:9 LANDSCAPE.
-- Create a PORTRAIT (9:16, tall) diagram - it MUST be LANDSCAPE (16:9, wide).
-- Omit the AWS Cloud, Region, or VPC containers.
-- Simplify the architecture to a small subset of components.
-- Make the diagram taller than it is wide.
-
-FINAL REMINDER:
-- You MUST show:
-  - An outer "AWS Cloud" box (wide, horizontal).
-  - A single "Region" box inside it (wide, horizontal).
-  - A single "VPC" box inside the Region (wide, horizontal).
-  - Multi-AZ arranged HORIZONTALLY (side by side, not stacked).
-  - Subnet-level detail, and all services and flows described in {summary_text}.
-  - Data flow from LEFT (users/edge) → CENTER (app) → RIGHT (data).
-- The canvas MUST be 16:9 LANDSCAPE (e.g., 3840×2160, NOT 2160×3840).
-- Pure white background.
-- The diagram MUST be detailed, clean, enterprise-grade, and HORIZONTAL.
-
-========================================
-ACTION REQUIRED - GENERATE THE DIAGRAM
-========================================
-
-STEP-BY-STEP DIAGRAM CREATION PROCESS:
-
-1. IDENTIFY COMPONENTS from the architecture summary:
-   - List ALL AWS services: EC2, ECS, Lambda, RDS, S3, DynamoDB, ALB, API Gateway, CloudFront, etc.
-   - List all networking components: VPC, subnets, security groups, NAT gateways, internet gateways
-   - List all security services: IAM, WAF, Shield, GuardDuty, KMS, Secrets Manager
-   - List all monitoring: CloudWatch, CloudTrail, X-Ray
-   - List all integrations: SQS, SNS, EventBridge, Step Functions
-
-2. CREATE THE DIAGRAM STRUCTURE (AWS STANDARD SHAPES - HORIZONTAL LAYOUT):
-   - Start with AWS Cloud container (outermost RECTANGULAR box with SHARP CORNERS, spanning full width)
-     * Set border color: #232F3E (dark gray)
-     * Set fill color: #FFFFFF (white) - EXPLICITLY set, do NOT use default
-     * Set background color: #FFFFFF (white)
-   - Add Region container inside AWS Cloud (RECTANGULAR with SHARP CORNERS, spanning full width horizontally)
-     * Set border color: #00A4A6 (teal), dashed style
-     * Set fill color: #FFFFFF (white) - EXPLICITLY set
-     * Set background color: #FFFFFF (white)
-   - Add VPC container inside Region (RECTANGULAR with SHARP CORNERS, spanning most width horizontally)
-     * Set border color: #8C4FFF (purple)
-     * Set fill color: #FFFFFF (white) - EXPLICITLY set
-     * Set background color: #FFFFFF (white)
-   - Add 2-3 Availability Zones arranged SIDE-BY-SIDE HORIZONTALLY inside VPC (NOT stacked vertically)
-     * Each AZ is a RECTANGULAR box with SHARP CORNERS, placed horizontally next to each other
-     * Set border color: #147EBA (light blue), dashed style
-     * Set fill color: #FFFFFF (white) - EXPLICITLY set, NOT light blue
-     * Set background color: #FFFFFF (white)
-   - Add subnets (Public, Private App, Private Data) inside each AZ (RECTANGULAR with SHARP CORNERS)
-     * Public Subnet: border = #7AA116 (green), fill = #FFFFFF (white) - NOT #F2F6E8
-     * Private Subnet: border = #00A4A6 (cyan), fill = #FFFFFF (white) - NOT #E6F6F7
-     * Set fill color EXPLICITLY to #FFFFFF for EVERY subnet - do NOT use tinted colors
-   - ALL boxes MUST have 90-degree corners, NO rounded corners, NO curved edges
-   - CRITICAL: AZs flow LEFT → RIGHT, not top → bottom
-   - CRITICAL: For EVERY box you create, explicitly set fill/background to #FFFFFF (white)
-
-3. PLACE AWS SERVICE ICONS (OFFICIAL AWS ICONS):
-   - Use OFFICIAL AWS Architecture Icons from AWS Architecture Icons set
-   - Each service gets its official icon: EC2 (orange), RDS (blue), S3 (green), Lambda (orange), etc.
-   - Place each identified service in its appropriate subnet/container
-   - Size icons consistently (~64x64 pixels)
-   - Add descriptive labels under each icon
-   - DO NOT put service icons inside rounded boxes - use the official square/rectangular icons directly
-
-4. DRAW CONNECTIONS (MINIMAL ARROWS ONLY):
-   - Add ONLY ESSENTIAL arrows showing PRIMARY data flows
-   - Use SIMPLE solid arrows (black or dark gray) - NO color coding
-   - Show ONLY these critical flows:
-     * Users → Edge Services → Application (one main flow path)
-     * Application → Database (one arrow per database)
-     * Application → Cache (if used)
-     * Database replication (if multi-AZ)
-     * External integrations (payment gateways, banking APIs)
-   - DO NOT add arrows for:
-     * Monitoring/logging (CloudWatch, CloudTrail, X-Ray)
-     * Security services (IAM, KMS, Secrets Manager)
-     * Backup/replication (unless critical)
-     * Internal service-to-service calls
-   - Keep arrows simple and minimal - too many arrows confuse users
-   - NO labels on arrows unless absolutely necessary
-
-5. APPLY VISUAL STYLING (AWS STANDARD - HIGH QUALITY):
-   - Set canvas to 3840×2160 pixels (16:9 landscape, wider than tall) - HIGH RESOLUTION
-   - Set DPI/Resolution to 300 DPI (dots per inch) for print-quality clarity
-   - Use white background (#FFFFFF)
-   - Apply colored BORDERS to containers (as specified above)
-   
-   CRITICAL: NO FILL COLORS - WHITE BACKGROUNDS ONLY:
-   - ALL container backgrounds MUST be pure WHITE (#FFFFFF) - set explicitly
-   - AWS Cloud background: #FFFFFF (white)
-   - Region background: #FFFFFF (white)
-   - VPC background: #FFFFFF (white)
-   - AZ background: #FFFFFF (white) - NOT light blue
-   - Public Subnet background: #FFFFFF (white) - NOT light green (#F2F6E8)
-   - Private Subnet background: #FFFFFF (white) - NOT light cyan (#E6F6F7)
-   - If diagram tool defaults to colored fills, OVERRIDE to #FFFFFF
-   - Only borders have colors - boxes are EMPTY WHITE inside
-   - DO NOT use any tinted colors - ONLY pure white (#FFFFFF)
-   
-   - Ensure proper spacing and alignment
-   - CRITICAL: Set corner-radius = 0 or border-radius = 0 for ALL container boxes
-   - Use RECTANGULAR shapes with SHARP 90-degree CORNERS throughout
-   - Arrange components HORIZONTALLY from LEFT to RIGHT (not top to bottom)
-   - Match AWS official documentation diagram style
-
-6. SAVE THE DIAGRAM (CRITICAL - HIGH QUALITY EXPORT):
-   🚨 MANDATORY SAVE LOCATION - NO EXCEPTIONS 🚨
-   - Export as HIGH-QUALITY PNG image with maximum clarity
-   - Set PNG export settings:
-     * Resolution: 300 DPI (dots per inch) - CRITICAL for clarity
-     * Compression: NONE or LOW (do NOT use high compression - it reduces quality)
-     * Color depth: 24-bit or 32-bit (full color, not 8-bit)
-     * Anti-aliasing: ENABLED (for smooth edges)
-     * Quality: 100% or maximum quality setting
-   - Canvas size: 3840×2160 pixels at 300 DPI
-   - Save DIRECTLY and ONLY to this EXACT path: {absolute_output_path}
-   - DO NOT save to ANY other location
-   - DO NOT save to the Backend directory
-   - DO NOT save to the root directory
-   - DO NOT create nested folders or subdirectories
-   - DO NOT save to generated-diagrams/generated-diagrams/ or any nested path
-   - DO NOT save outside the outputs/generated-diagrams/ directory
-   - Save ONLY to: {absolute_output_path}
-   - The file MUST be saved at: outputs/generated-diagrams/ - NOWHERE ELSE
-   - If you save to any other location, the diagram will NOT be found
-
-CRITICAL VALIDATION BEFORE SAVING:
-- Verify the output is a PNG IMAGE file (not text, not code, not DOT file)
-- Verify the image contains VISUAL ELEMENTS (icons, boxes, arrows) not just text
-- Verify HIGH QUALITY EXPORT:
-  * Resolution: 3840×2160 pixels (or minimum 1920×1080)
-  * DPI: 300 DPI for maximum clarity
-  * Compression: NONE or LOWEST (no high compression)
-  * Color depth: 24-bit or 32-bit (full color)
-  * Image should be sharp and clear, not pixelated or blurry
-- Verify ALL services from the summary are represented
-- Verify the layout is HORIZONTAL (16:9, wider than tall)
-- VERIFY ALL MANDATORY CONTAINER BOXES ARE PRESENT:
-  * AWS Cloud container (outermost) - MUST be present
-  * Region container (inside AWS Cloud) - MUST be present
-  * VPC container (inside Region) - MUST be present
-  * Availability Zone containers (2-3 AZs, inside VPC) - MUST be present
-  * Subnet containers (inside each AZ) - MUST be present
-- VERIFY ALL CONTAINER BOXES ARE RECTANGULAR WITH SHARP CORNERS (NO rounded/curved boxes)
-- 🚨 VERIFY NO FILL COLORS - CRITICAL CHECK 🚨:
-  * VISUALLY INSPECT the diagram - all container boxes must have WHITE backgrounds
-  * All container backgrounds MUST be pure WHITE (#FFFFFF) - check visually
-  * NO light green (#F2F6E8) visible in Public Subnets - if you see green tint, it's WRONG
-  * NO light cyan (#E6F6F7) visible in Private Subnets - if you see cyan tint, it's WRONG
-  * NO light blue tints visible in AZs - if you see blue tint, it's WRONG
-  * NO colored fills of ANY kind inside container boxes - boxes must be EMPTY WHITE
-  * If you see ANY colored background inside boxes (green, cyan, blue, or any color), STOP and fix it
-  * Only borders should have colors - the inside of boxes must be pure white
-  * If the diagram has colored fills, DO NOT save it - regenerate with white fills
-- Verify boxes match AWS official diagram standards
-- Verify official AWS service icons are used (not generic shapes)
-- VERIFY MINIMAL ARROWS: Only essential data flows shown, NO monitoring/logging arrows, NO security service arrows
-- Verify arrows are simple (solid, black/gray) - NO complex color coding or excessive labels
-- VERIFY SAVE PATH: File saved to exact path {absolute_output_path} (NOT in nested folders)
-
-NOW EXECUTE: Use the available diagram generation tools to create this complete AWS-standard architecture diagram and save it to the specified path.
-
-FINAL AWS STANDARDS CHECKLIST:
-✓ RECTANGULAR containers with SHARP CORNERS (corner-radius = 0)
-✓ Official AWS Architecture Icons
-✓ Colored borders only - NO fill colors inside boxes
-✓ ALL container backgrounds MUST be pure WHITE (#FFFFFF) - NO tinted colors
-✓ Public Subnets: Green border, WHITE (#FFFFFF) background - NOT light green (#F2F6E8)
-✓ Private Subnets: Cyan border, WHITE (#FFFFFF) background - NOT light cyan (#E6F6F7)
-✓ HORIZONTAL LEFT-TO-RIGHT flow (NOT top-to-bottom)
-✓ Availability Zones arranged side-by-side horizontally
-✓ MINIMAL ARROWS - only essential data flows (Users→Edge→App→Database)
-✓ Simple arrow style (solid, black/gray) - NO color coding or excessive labels
-✓ Professional, clean layout matching AWS documentation
-✓ White background
-✓ 16:9 landscape orientation (wider than tall)
-✓ HIGH QUALITY export (300 DPI, no compression, 24-bit color, maximum clarity)
-✗ NO rounded corners on containers
-✗ NO curved boxes
-✗ NO colored fills inside container boxes
-✗ NO vertical stacking of major components (AZs must be horizontal)
-✗ NO generic/custom icons
-✗ NO monitoring/logging arrows (CloudWatch, CloudTrail, X-Ray)
-✗ NO security service arrows (IAM, KMS, Secrets Manager)
-✗ NO excessive arrows - keep it minimal and simple
-✗ NO nested folders - save directly to {absolute_output_path}
-
-FINAL REMINDERS:
-1. ALL container boxes are MANDATORY - AWS Cloud, Region, VPC, AZs, Subnets must all be drawn
-
-2. 🚨 NO FILL COLORS - ABSOLUTELY CRITICAL 🚨:
-   - When creating EACH container box, you MUST explicitly set:
-     * fill = #FFFFFF
-     * fillColor = #FFFFFF
-     * backgroundColor = #FFFFFF
-     * background = #FFFFFF
-   - ALL container backgrounds MUST be pure WHITE (#FFFFFF) - NO exceptions
-   - DO NOT use #F2F6E8 (light green) for Public Subnets - use #FFFFFF
-   - DO NOT use #E6F6F7 (light cyan) for Private Subnets - use #FFFFFF
-   - DO NOT use ANY tinted colors - ONLY pure white (#FFFFFF)
-   - Set fill color explicitly to #FFFFFF for ALL containers BEFORE saving
-   - If diagram tool defaults to colored fills, OVERRIDE to white (#FFFFFF)
-   - VISUALLY CHECK the diagram - if you see ANY color inside boxes, it's WRONG
-   - Only borders have colors - boxes are EMPTY WHITE inside
-
-3. 🚨 SAVE LOCATION - ABSOLUTELY CRITICAL 🚨:
-   - Save ONLY to: {absolute_output_path}
-   - This path is: outputs/generated-diagrams/ - NOWHERE ELSE
-   - DO NOT save to Backend directory
-   - DO NOT save to project root
-   - DO NOT save to any nested folders
-   - DO NOT save outside outputs/generated-diagrams/
-   - If you save anywhere else, the file will NOT be found
-   - The EXACT path is: {absolute_output_path}
-   - Save DIRECTLY to this path - no subdirectories, no other locations
-
-4. Follow the reference diagram style - clean, professional, minimal arrows, WHITE backgrounds only
-
-IF YOU SEE COLORED FILLS IN THE DIAGRAM, DO NOT SAVE IT - REGENERATE WITH WHITE FILLS!
-IF YOU SAVE TO ANY LOCATION OTHER THAN {absolute_output_path}, THE DIAGRAM WILL NOT BE FOUND!
+Extract all components from the summary and organize them into HORIZONTAL COLUMNS (not vertical rows):
+
+HORIZONTAL COLUMN LAYOUT (LEFT → RIGHT):
+┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+│  COLUMN 1   │  COLUMN 2   │  COLUMN 3   │  COLUMN 4   │  COLUMN 5   │
+│  (LEFT)     │             │  (CENTER)   │             │  (RIGHT)    │
+├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ External    │ Ingestion & │ Processing  │ Storage &   │ Monitoring  │
+│ Sources     │ Events      │ & Compute   │ Security    │ & External  │
+│             │             │             │             │ Integration │
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
+
+COLUMN 1 - EXTERNAL & INGESTION (LEFT, 20% width):
+   - External users (Shippers/Carriers)
+   - Data sources
+   - Email ingestion (Amazon SES)
+   - S3 Input Bucket
+
+COLUMN 2 - EVENT TRIGGERS & ROUTING (LEFT-CENTER, 20% width):
+   - S3 Event Notifications
+   - Lambda Functions (triggers)
+   - EventBridge Rules
+   - SQS Queues
+   - SNS Topics
+
+COLUMN 3 - CORE PROCESSING (CENTER, 30% width):
+   - Lambda Functions (processors)
+   - EC2 Instances
+   - ECS/EKS Services
+   - SageMaker Jobs/Pipelines
+   - Batch Jobs
+   - AI/ML Services (Bedrock, Textract)
+
+COLUMN 4 - DATA & SECURITY (RIGHT-CENTER, 20% width):
+   - S3 Output Buckets
+   - DynamoDB Tables
+   - RDS Databases
+   - ECR Repositories
+   - KMS Keys
+   - Secrets Manager
+   - IAM Roles
+
+COLUMN 5 - MONITORING & OUTPUT (RIGHT, 10% width):
+   - CloudWatch Logs/Metrics
+   - X-Ray Tracing
+   - CloudTrail
+   - External API Integration
+   - Notifications
+
+DATA FLOW (LEFT → RIGHT):
+1. External sources → Ingestion (Column 1 → Column 2)
+2. Ingestion → Event triggers (Column 2)
+3. Events → Processing (Column 2 → Column 3)
+4. Processing ↔ AI/ML services (within Column 3)
+5. Processing → Storage (Column 3 → Column 4)
+6. Storage → Monitoring (Column 4 → Column 5)
+7. Processing → External APIs (Column 3 → Column 5)
+
+STYLING REQUIREMENTS (CRITICAL):
+- NO COLORS: Use black, white, and gray ONLY
+- NO colored fills, NO colored backgrounds, NO colored borders
+- Use official AWS service icons in GRAYSCALE/BLACK-WHITE
+- White background for entire canvas
+- Black or dark gray borders for containers
+- Simple, clean, professional monochrome appearance
+
+LAYOUT REQUIREMENTS (MANDATORY):
+1. HORIZONTAL LANDSCAPE: Width MUST be greater than height
+2. ASPECT RATIO: 16:9 (e.g., 3840×2160, 1920×1080)
+3. FLOW DIRECTION: LEFT-TO-RIGHT across the width
+4. COLUMN ARRANGEMENT: Components in 5 horizontal columns
+5. NO VERTICAL STACKING: Arrange horizontally
+6. GRAPHVIZ RANKDIR: LR (if using DOT/Graphviz)
+7. CANVAS WIDTH: At least 3840 pixels
+8. CANVAS HEIGHT: At most 2160 pixels (width should be ~1.78x height)
+
+CONTAINER HIERARCHY (HORIZONTAL LAYOUT):
+- AWS Cloud (outermost, full width 3840px)
+- Region (inside AWS Cloud, ~3600px width)
+- VPC (inside Region, ~3400px width)
+- Availability Zones: Place SIDE-BY-SIDE horizontally, NOT stacked vertically
+
+FORBIDDEN PATTERNS (DO NOT DO THIS):
+❌ NO vertical top-to-bottom flow
+❌ NO portrait orientation (taller than wide)
+❌ NO stacking major components vertically
+❌ NO colors (stay monochrome/grayscale)
+❌ NO aspect ratio less than 16:9
+
+OUTPUT SPECIFICATIONS:
+- Format: PNG image
+- Dimensions: 3840×2160 pixels (width × height)
+- Resolution: 300 DPI
+- Color: Grayscale/Black-White only
+- Save to: {absolute_output_path}
+
+=== FINAL REMINDER ===
+The diagram MUST be HORIZONTAL LANDSCAPE (16:9 ratio).
+Width MUST be ~1.78 times the height.
+Components flow LEFT → RIGHT.
+Use 'rankdir=LR' if generating Graphviz DOT format.
 """
+        
+        diagram_prompt = final_prompt
 
         # Initialize MCP client and agent
         # Suppress sarif module warnings by setting environment variable
@@ -1030,20 +527,60 @@ IF YOU SAVE TO ANY LOCATION OTHER THAN {absolute_output_path}, THE DIAGRAM WILL 
                 latest_dot = max(dot_files, key=lambda p: p.stat().st_mtime)
                 print(f"Found DOT file: {latest_dot}")
                 
+                # Post-process DOT file to force horizontal layout
+                try:
+                    with open(latest_dot, 'r') as f:
+                        dot_content = f.read()
+                    
+                    # Force horizontal layout by modifying DOT attributes
+                    modified = False
+                    
+                    # If rankdir is not set or is TB/BT, change to LR
+                    if 'rankdir=' in dot_content:
+                        if 'rankdir=TB' in dot_content or 'rankdir=BT' in dot_content or 'rankdir="TB"' in dot_content or 'rankdir="BT"' in dot_content:
+                            dot_content = dot_content.replace('rankdir=TB', 'rankdir=LR')
+                            dot_content = dot_content.replace('rankdir=BT', 'rankdir=LR')
+                            dot_content = dot_content.replace('rankdir="TB"', 'rankdir="LR"')
+                            dot_content = dot_content.replace('rankdir="BT"', 'rankdir="LR"')
+                            modified = True
+                            print("Modified rankdir from TB/BT to LR (horizontal)")
+                    else:
+                        # Add rankdir=LR if not present
+                        # Insert after the opening digraph/graph line
+                        lines = dot_content.split('\n')
+                        for i, line in enumerate(lines):
+                            if ('digraph' in line or 'graph' in line) and '{' in line:
+                                lines.insert(i + 1, '  rankdir=LR;  // Force horizontal layout')
+                                lines.insert(i + 2, '  size="38.4,21.6!";  // 16:9 aspect ratio in inches (300 DPI)')
+                                lines.insert(i + 3, '  ratio="fill";')
+                                dot_content = '\n'.join(lines)
+                                modified = True
+                                print("Added rankdir=LR and size constraints to DOT file")
+                                break
+                    
+                    # Write back modified content
+                    if modified:
+                        with open(latest_dot, 'w') as f:
+                            f.write(dot_content)
+                        print(f"Modified DOT file to force horizontal layout: {latest_dot}")
+                except Exception as e:
+                    print(f"Warning: Could not modify DOT file for horizontal layout: {e}")
+                
                 # Try to convert DOT to PNG if Graphviz is available
                 dot_path = shutil.which("dot")
                 if dot_path:
                     try:
-                        # Convert DOT to PNG
+                        # Convert DOT to PNG with explicit size and ratio parameters
                         png_output = output_path
                         subprocess.run(
-                            [dot_path, "-Tpng", str(latest_dot), "-o", str(png_output)],
+                            [dot_path, "-Tpng", "-Gsize=38.4,21.6!", "-Gratio=fill", "-Grankdir=LR", 
+                             str(latest_dot), "-o", str(png_output)],
                             check=True,
                             capture_output=True,
                             timeout=30
                         )
                         if png_output.exists():
-                            print(f"Converted DOT to PNG: {png_output}")
+                            print(f"Converted DOT to PNG with horizontal layout: {png_output}")
                             return str(png_output)
                     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                         print(f"Failed to convert DOT to PNG: {e}")
@@ -1133,25 +670,30 @@ IF YOU SAVE TO ANY LOCATION OTHER THAN {absolute_output_path}, THE DIAGRAM WILL 
                     
                     return str(latest_image)
                 else:
-                    # Fallback to most recently created image overall
-                    latest_image = max(image_files, key=lambda p: p.stat().st_mtime)
-                    print(f"Found image file (no request ID match): {latest_image}")
+                    # Fallback: MCP server created a file with generic name instead of our timestamped name
+                    # Find the most recently modified file (within last 60 seconds)
+                    now = time.time()
+                    recent_files = [f for f in image_files if (now - f.stat().st_mtime) < 60]
                     
-                    # ALWAYS move file to outputs/generated-diagrams/ if it's not already there
-                    if latest_image.parent != output_dir:
-                        target_path = output_dir / latest_image.name
-                        # Handle name conflicts
-                        if target_path.exists():
-                            target_path = output_dir / f"{latest_image.stem}_moved{latest_image.suffix}"
-                        print(f"Moving file from {latest_image.parent} to {output_dir}")
-                        try:
-                            shutil.move(str(latest_image), str(target_path))
-                            return str(target_path)
-                        except Exception as e:
-                            print(f"Failed to move file: {e}")
+                    if recent_files:
+                        latest_image = max(recent_files, key=lambda p: p.stat().st_mtime)
+                        file_age = now - latest_image.stat().st_mtime
+                        print(f"Found recently created file (no request ID match): {latest_image} (age: {file_age:.1f}s)")
+                        
+                        # CRITICAL: Copy this file to our expected output path to avoid reusing same file
+                        if latest_image != output_path:
+                            try:
+                                shutil.copy2(str(latest_image), str(output_path))
+                                print(f"Copied {latest_image.name} → {output_path.name}")
+                                return str(output_path)
+                            except Exception as e:
+                                print(f"Failed to copy file: {e}")
+                                return str(latest_image)
+                        else:
                             return str(latest_image)
-                    
-                    return str(latest_image)
+                    else:
+                        print(f"No recently created files found (all files older than 60 seconds)")
+                        return None
             
             print("No diagram file found after generation")
             return None
@@ -1166,19 +708,749 @@ IF YOU SAVE TO ANY LOCATION OTHER THAN {absolute_output_path}, THE DIAGRAM WILL 
         return None
 
 
-def generate_diagram(summary_text: str, output_path: Path) -> Optional[str]:
+def generate_diagram_with_bedrock(
+    summary_text: str,
+    output_path: Path,
+    aws_region: str = "us-east-1",
+    bedrock_model_id: str = "anthropic.claude-3-sonnet-20240229-v1:0",
+    diagram_prompt: Optional[str] = None
+) -> Optional[str]:
     """
-    Generate architecture diagram using strands and MCP.
+    This method is deprecated - Mermaid flowchart is not suitable for AWS architecture diagrams.
+    Use strands/MCP method instead which generates proper AWS architecture diagrams.
+    """
+    print("Skipping Bedrock/Mermaid method - not suitable for AWS architecture diagrams")
+    return None
+    """
+    Generate architecture diagram using AWS Bedrock with high-end models (Claude 3.5 Sonnet/Opus).
+    Uses Mermaid diagram code generation with full prompt control for white backgrounds.
+    
+    This method provides COMPLETE CONTROL over the prompt and styling, ensuring:
+    - Pure white (#FFFFFF) backgrounds for all containers
+    - No colored fills inside boxes
+    - Professional AWS-standard diagram appearance
+    - Horizontal 16:9 layout
+    
+    Args:
+        summary_text: Architecture summary text
+        output_path: Path to save the diagram PNG locally (before S3 upload)
+        aws_region: AWS region for Bedrock
+        bedrock_model_id: High-end Bedrock model ID (default: Claude 3.5 Sonnet)
+    
+    Returns:
+        Path to generated diagram image or None if failed.
+    """
+    try:
+        bedrock_runtime = boto3.client('bedrock-runtime', region_name=aws_region)
+    except NoCredentialsError:
+        print("AWS credentials not configured for Bedrock")
+        return None
+    except Exception as e:
+        print(f"Failed to initialize Bedrock client: {e}")
+        return None
+    
+    absolute_output_path = output_path.resolve()
+    
+    # Use provided diagram prompt or generate default
+    if diagram_prompt:
+        # Use the provided prompt directly (it should already contain the summary)
+        readable_summary = convert_markdown_to_readable_text(summary_text)
+        # Replace placeholders if they exist in the prompt
+        diagram_code_prompt = diagram_prompt.replace(
+            '{readable_summary}',
+            readable_summary
+        ).replace(
+            '{summary_text}',
+            readable_summary
+        )
+        # If prompt doesn't have placeholders, it's already complete
+    else:
+        # Convert markdown summary to human-readable text for better diagram generation
+        readable_summary = convert_markdown_to_readable_text(summary_text)
+        
+        # Clean, concise prompt for Mermaid diagram generation with landscape emphasis
+        diagram_code_prompt = f"""Generate Mermaid flowchart code for a horizontal AWS architecture diagram in LANDSCAPE mode.
+
+ARCHITECTURE SUMMARY:
+{readable_summary}
+
+REQUIREMENTS:
+- MANDATORY: Horizontal 16:9 LANDSCAPE layout (left-to-right flow, NOT top-to-bottom)
+- Canvas MUST be wider than tall (3840×2160 or 1920×1080)
+- Hierarchy: AWS Cloud → Region → VPC → Availability Zones (side-by-side horizontally) → Subnets
+- Include all AWS services from summary
+- Minimal arrows (only essential flows: Users→Edge→App→Database)
+- Rectangular shapes with sharp corners
+
+STYLING:
+- All containers: fill:#FFFFFF (white backgrounds)
+- Borders: AWS Cloud (#232F3E), Region (#00A4A6 dashed), VPC (#8C4FFF), AZ (#147EBA dashed), Public Subnet (#7AA116), Private Subnet (#00A4A6)
+- Layout: Horizontal LANDSCAPE - components flow left to right across width
+- Canvas: 3840×2160 (16:9 landscape, wider than tall)
+
+EXAMPLE:
+\`\`\`mermaid
+flowchart LR
+    subgraph AWS["AWS Cloud"]
+        style AWS fill:#FFFFFF,stroke:#232F3E,stroke-width:3px
+        subgraph Region["Region"]
+            style Region fill:#FFFFFF,stroke:#00A4A6,stroke-width:2px,stroke-dasharray: 5 5
+            subgraph VPC["VPC"]
+                style VPC fill:#FFFFFF,stroke:#8C4FFF,stroke-width:3px
+                subgraph AZ1["AZ 1a"]
+                    style AZ1 fill:#FFFFFF,stroke:#147EBA,stroke-width:2px,stroke-dasharray: 5 5
+                    subgraph Pub1["Public"]
+                        style Pub1 fill:#FFFFFF,stroke:#7AA116,stroke-width:2px
+                        ALB[ALB]
+                    end
+                    subgraph Priv1["Private"]
+                        style Priv1 fill:#FFFFFF,stroke:#00A4A6,stroke-width:2px
+                        EC2[EC2]
+                        RDS[(RDS)]
+                    end
+                end
+            end
+        end
+    end
+    ALB --> EC2
+    EC2 --> RDS
+\`\`\`
+
+Return ONLY the Mermaid code block. Use flowchart LR for horizontal layout. Every subgraph MUST have fill:#FFFFFF."""
+
+    try:
+        print(f"Generating diagram code with Bedrock model: {bedrock_model_id}")
+        
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 12000,
+            "temperature": 0.3,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": diagram_code_prompt
+                }
+            ]
+        }
+        
+        response = bedrock_runtime.invoke_model(
+            modelId=bedrock_model_id,
+            body=json.dumps(body)
+        )
+        
+        response_body = json.loads(response['body'].read())
+        
+        # Extract Mermaid code from response
+        mermaid_code = None
+        if 'content' in response_body:
+            for block in response_body['content']:
+                if block.get('type') == 'text':
+                    text = block.get('text', '')
+                    if '```mermaid' in text.lower():
+                        start_idx = text.lower().find('```mermaid')
+                        remaining = text[start_idx + len('```mermaid'):]
+                        end_idx = remaining.find('```')
+                        if end_idx != -1:
+                            mermaid_code = remaining[:end_idx].strip()
+                            break
+                    elif 'flowchart' in text.lower() or 'graph' in text.lower():
+                        lines = text.split('\n')
+                        start_found = False
+                        code_lines = []
+                        for line in lines:
+                            if 'flowchart' in line.lower() or 'graph' in line.lower():
+                                start_found = True
+                            if start_found:
+                                if line.strip().startswith('```'):
+                                    continue
+                                code_lines.append(line)
+                                if line.strip() == '```' and len(code_lines) > 5:
+                                    code_lines.pop()
+                                    break
+                        if code_lines:
+                            mermaid_code = '\n'.join(code_lines).strip()
+                            mermaid_code = mermaid_code.replace('```mermaid', '').replace('```', '').strip()
+                            break
+        
+        if not mermaid_code:
+            print("No Mermaid code found in Bedrock response")
+            print(f"Response preview: {str(response_body)[:500]}")
+            return None
+        
+        print(f"Generated Mermaid code ({len(mermaid_code)} chars)")
+        
+        # Save prompt to text file
+        prompt_file = output_path.parent / f"{output_path.stem}_prompt.txt"
+        with open(prompt_file, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            f.write("DIAGRAM GENERATION PROMPT\n")
+            f.write("=" * 80 + "\n\n")
+            f.write(f"Generated: {datetime.now().isoformat()}\n")
+            f.write(f"Model: {bedrock_model_id}\n")
+            f.write(f"Output Path: {absolute_output_path}\n\n")
+            f.write("=" * 80 + "\n")
+            f.write("PROMPT TEXT\n")
+            f.write("=" * 80 + "\n\n")
+            f.write(diagram_code_prompt)
+        print(f"Prompt saved to: {prompt_file}")
+        
+        # Save Mermaid code temporarily
+        mermaid_file = output_path.parent / f"{output_path.stem}.mmd"
+        with open(mermaid_file, 'w') as f:
+            f.write(mermaid_code)
+        print(f"Mermaid code saved to: {mermaid_file}")
+        
+        # Try to render Mermaid to PNG using mermaid-cli (mmdc)
+        mmdc_path = shutil.which("mmdc")
+        if mmdc_path:
+            try:
+                cmd = [
+                    mmdc_path,
+                    "-i", str(mermaid_file),
+                    "-o", str(output_path),
+                    "-w", "3840",
+                    "-H", "2160",
+                    "-b", "white",
+                    "-s", "2",
+                    "-t", "default",
+                    "--puppeteerConfigFile", "none"
+                ]
+                
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0 and output_path.exists():
+                    mermaid_file.unlink()
+                    file_size = output_path.stat().st_size
+                    print(f"✓ Diagram generated successfully: {output_path} ({file_size:,} bytes)")
+                    return str(output_path)
+                else:
+                    print(f"Mermaid rendering failed: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                print("Mermaid rendering timed out")
+            except Exception as e:
+                print(f"Failed to render Mermaid: {e}")
+        else:
+            print("Mermaid CLI (mmdc) not found. Install with: npm install -g @mermaid-js/mermaid-cli")
+            return None
+        
+        return None
+        
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+        print(f"AWS Bedrock error ({error_code}): {error_message}")
+        
+        # Try fallback to available models if requested model is not available
+        if error_code == 'ValidationException' or 'not available' in error_message.lower() or 'isn\'t supported' in error_message.lower():
+            print(f"Model {bedrock_model_id} not available, attempting fallback...")
+            # Try Claude 3 Sonnet first
+            if 'claude-3-sonnet' not in bedrock_model_id:
+                fallback_model = "anthropic.claude-3-sonnet-20240229-v1:0"
+                print(f"Attempting fallback to {fallback_model}...")
+                return generate_diagram_with_bedrock(
+                    summary_text, output_path, aws_region, fallback_model
+                )
+            # If Sonnet also fails, try Haiku
+            elif 'claude-3-haiku' not in bedrock_model_id:
+                fallback_model = "anthropic.claude-3-haiku-20240307-v1:0"
+                print(f"Attempting fallback to {fallback_model}...")
+                return generate_diagram_with_bedrock(
+                    summary_text, output_path, aws_region, fallback_model
+                )
+        return None
+    except Exception as e:
+        print(f"Error generating diagram with Bedrock: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def upload_to_s3(file_path: Path, s3_key: str) -> Optional[str]:
+    """
+    Upload a file to S3 bucket.
+    
+    Args:
+        file_path: Local file path to upload
+        s3_key: S3 object key (path in bucket)
+    
+    Returns:
+        S3 URL if successful, None otherwise
+    """
+    if not s3_client:
+        print("S3 client not available")
+        return None
+    
+    try:
+        s3_client.upload_file(
+            str(file_path),
+            S3_BUCKET_NAME,
+            s3_key,
+            ExtraArgs={'ContentType': 'image/png'}
+        )
+        s3_url = f"https://{S3_BUCKET_NAME}.s3.{S3_REGION}.amazonaws.com/{s3_key}"
+        print(f"✓ Uploaded to S3: {s3_url}")
+        return s3_url
+    except Exception as e:
+        print(f"Failed to upload to S3: {e}")
+        return None
+
+
+def download_from_s3(s3_key: str) -> Optional[bytes]:
+    """
+    Download a file from S3 bucket.
+    
+    Args:
+        s3_key: S3 object key (path in bucket)
+    
+    Returns:
+        File content as bytes if successful, None otherwise
+    """
+    if not s3_client:
+        return None
+    
+    try:
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
+        return response['Body'].read()
+    except Exception as e:
+        print(f"Failed to download from S3: {e}")
+        return None
+
+
+def list_s3_diagrams() -> List[Dict]:
+    """
+    List all diagrams in S3 bucket.
+    
+    Returns:
+        List of diagram metadata dictionaries
+    """
+    if not s3_client:
+        return []
+    
+    try:
+        diagrams = []
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=S3_BUCKET_NAME, Prefix=S3_PREFIX)
+        
+        for page in pages:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    if key.endswith('.png'):
+                        diagrams.append({
+                            "filename": Path(key).name,
+                            "s3_key": key,
+                            "size": obj['Size'],
+                            "created": obj['LastModified'].timestamp(),
+                            "modified": obj['LastModified'].timestamp(),
+                            "url": f"/api/s3-diagram/{Path(key).name}"
+                        })
+        
+        # Sort by creation time (newest first)
+        diagrams.sort(key=lambda x: x["created"], reverse=True)
+        return diagrams
+    except Exception as e:
+        print(f"Failed to list S3 diagrams: {e}")
+        return []
+
+
+def generate_diagram(summary_text: str, output_path: Path, aws_region: str = "us-east-1", bedrock_model_id: str = "anthropic.claude-3-sonnet-20240229-v1:0", diagram_prompt: Optional[str] = None) -> Optional[str]:
+    """
+    Generate architecture diagram using strands/MCP (only method).
     Returns path to generated diagram image or None if failed.
-    Diagram generation is optional - if unavailable, returns None gracefully.
+    
+    Uses AWS Diagram MCP Server which generates proper AWS architecture diagrams
+    with official icons and proper layout.
     """
-    return generate_diagram_with_strands(summary_text, output_path)
+    # Use strands/MCP method only (Bedrock/Mermaid not suitable for architecture diagrams)
+    print("Generating diagram with strands/MCP method (AWS Diagram MCP Server)...")
+    return generate_diagram_with_strands(summary_text, output_path, diagram_prompt)
 
 
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {"message": "Architecture Diagram Generator API", "status": "running"}
+
+
+def send_progress_event(message: str, progress: Optional[int] = None, status: str = "info"):
+    """Helper function to format SSE events"""
+    data = {
+        "message": message,
+        "status": status,
+        "timestamp": datetime.now().isoformat()
+    }
+    if progress is not None:
+        data["progress"] = progress
+    return f"data: {json.dumps(data)}\n\n"
+
+
+@app.post("/api/generate-summary")
+async def generate_summary_for_approval(
+    file: UploadFile = File(...),
+    aws_region: Optional[str] = Form("us-east-1"),
+    bedrock_model_id: Optional[str] = Form("arn:aws:bedrock:us-east-1:302263040839:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0")
+):
+    """
+    Generate architecture summary using high-end model for user approval/editing.
+    Returns summary text that user can review and edit before diagram generation.
+    """
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+    
+    request_id = str(uuid.uuid4())
+    temp_pdf_path = UPLOAD_DIR / f"{request_id}_{file.filename}"
+    
+    try:
+        # Save uploaded PDF
+        with open(temp_pdf_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Extract content from PDF
+        content = extract_pdf(
+            pdf_path=str(temp_pdf_path),
+            method='pdfplumber'
+        )
+        
+        # Generate summary using high-end model
+        summary = summarize_with_bedrock(
+            text=content.get('text', ''),
+            aws_region=aws_region,
+            model_id=bedrock_model_id,
+            summary_type='architecture'
+        )
+        
+        summary_text = summary.get('summary', '')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "summary": summary_text,
+                "request_id": request_id,
+                "model_id": bedrock_model_id,
+                "summary_length": len(summary_text)
+            }
+        )
+    except Exception as e:
+        print(f"Error generating summary: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating summary: {str(e)}")
+    finally:
+        # Clean up temporary PDF file
+        if temp_pdf_path.exists():
+            temp_pdf_path.unlink()
+
+
+@app.post("/api/generate-diagram-stream")
+async def generate_architecture_diagram_stream(
+    file: UploadFile = File(...),
+    aws_region: Optional[str] = Form("us-east-1"),
+    bedrock_model_id: Optional[str] = Form("anthropic.claude-3-sonnet-20240229-v1:0")
+):
+    """
+    Generate architecture diagram with SSE progress updates from PDF file.
+    """
+    if not file.filename.endswith('.pdf'):
+        async def error_stream():
+            yield await send_progress_event("Error: File must be a PDF", status="error")
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/generate-diagram-from-summary")
+async def generate_architecture_diagram_from_summary_stream(
+    summary_text: str = Form(...),
+    diagram_prompt: Optional[str] = Form(None),
+    aws_region: Optional[str] = Form("us-east-1"),
+    bedrock_model_id: Optional[str] = Form("anthropic.claude-3-sonnet-20240229-v1:0")
+):
+    """
+    Generate architecture diagram with SSE progress updates from approved summary text.
+    """
+    async def generate_with_progress():
+        request_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
+        generated_diagrams_dir.mkdir(exist_ok=True)
+        output_diagram_path = generated_diagrams_dir / f"{timestamp}_{request_id}_diagram.png"
+        
+        try:
+            yield send_progress_event("✓ Using approved summary", 60, "success")
+            await asyncio.sleep(0.1)
+            
+            # Generate diagram code
+            yield send_progress_event("🎨 Generating diagram code with Bedrock...", 70, "info")
+            diagram_path = generate_diagram(
+                summary_text,
+                output_diagram_path,
+                aws_region=aws_region,
+                bedrock_model_id=bedrock_model_id,
+                diagram_prompt=diagram_prompt
+            )
+            
+            if not diagram_path or not Path(diagram_path).exists():
+                yield send_progress_event(
+                    "⚠️ Diagram generation failed. Check logs for details.",
+                    0,
+                    "error"
+                )
+                yield send_progress_event(
+                    f"Architecture Summary: {summary_text[:200]}...",
+                    0,
+                    "info"
+                )
+                return
+            
+            yield send_progress_event("✓ Diagram code generated", 80, "success")
+            await asyncio.sleep(0.1)
+            
+            # Validate diagram file
+            diagram_file = Path(diagram_path)
+            if not diagram_file.is_file():
+                yield send_progress_event("❌ Diagram file is invalid", 0, "error")
+                return
+            
+            file_size = diagram_file.stat().st_size
+            if file_size == 0:
+                yield send_progress_event("❌ Diagram file is empty", 0, "error")
+                return
+            
+            yield send_progress_event(f"✓ Diagram rendered ({file_size:,} bytes)", 90, "success")
+            await asyncio.sleep(0.1)
+            
+            # Upload to S3
+            yield send_progress_event("☁️ Uploading to S3...", 95, "info")
+            s3_key = f"{S3_PREFIX}{timestamp}_{request_id}_diagram.png"
+            s3_url = upload_to_s3(diagram_file, s3_key)
+            
+            if s3_url:
+                yield send_progress_event("✓ Uploaded to S3 successfully", 100, "success")
+                await asyncio.sleep(0.1)
+                
+                # Read image data
+                with open(diagram_file, 'rb') as f:
+                    image_data = f.read()
+                
+                # Send final event with image data (base64 encoded)
+                import base64
+                image_base64 = base64.b64encode(image_data).decode('utf-8')
+                final_data = {
+                    "message": "✓ Diagram ready!",
+                    "status": "complete",
+                    "progress": 100,
+                    "request_id": request_id,
+                    "filename": diagram_file.name,
+                    "file_size": file_size,
+                    "s3_url": s3_url,
+                    "s3_key": s3_key,
+                    "image_data": image_base64,
+                    "timestamp": datetime.now().isoformat()
+                }
+                yield f"data: {json.dumps(final_data)}\n\n"
+            else:
+                yield send_progress_event("⚠️ S3 upload failed, using local storage", 100, "warning")
+                await asyncio.sleep(0.1)
+                
+                # Read image data
+                with open(diagram_file, 'rb') as f:
+                    image_data = f.read()
+                
+                import base64
+                image_base64 = base64.b64encode(image_data).decode('utf-8')
+                final_data = {
+                    "message": "✓ Diagram ready (local storage)",
+                    "status": "complete",
+                    "progress": 100,
+                    "request_id": request_id,
+                    "filename": diagram_file.name,
+                    "file_size": file_size,
+                    "image_data": image_base64,
+                    "timestamp": datetime.now().isoformat()
+                }
+                yield f"data: {json.dumps(final_data)}\n\n"
+            
+        except Exception as e:
+            error_msg = f"❌ Error: {str(e)}"
+            print(f"Error processing request: {str(e)}")
+            yield send_progress_event(error_msg, 0, "error")
+            import traceback
+            traceback.print_exc()
+    
+    return StreamingResponse(
+        generate_with_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@app.post("/api/generate-diagram-stream")
+async def generate_architecture_diagram_stream(
+    file: UploadFile = File(...),
+    aws_region: Optional[str] = Form("us-east-1"),
+    bedrock_model_id: Optional[str] = Form("anthropic.claude-3-sonnet-20240229-v1:0")
+):
+    """
+    Generate architecture diagram with SSE progress updates from PDF file.
+    """
+    if not file.filename.endswith('.pdf'):
+        async def error_stream():
+            yield await send_progress_event("Error: File must be a PDF", status="error")
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
+    
+    async def generate_with_progress():
+        request_id = str(uuid.uuid4())
+        temp_pdf_path = UPLOAD_DIR / f"{request_id}_{file.filename}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
+        generated_diagrams_dir.mkdir(exist_ok=True)
+        output_diagram_path = generated_diagrams_dir / f"{timestamp}_{request_id}_diagram.png"
+        
+        try:
+            # Step 1: Save uploaded PDF
+            yield send_progress_event("📄 Uploading PDF file...", 10, "info")
+            with open(temp_pdf_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            yield send_progress_event("✓ PDF uploaded successfully", 20, "success")
+            await asyncio.sleep(0.1)
+            
+            # Step 2: Extract content from PDF
+            yield send_progress_event("📖 Extracting content from PDF...", 30, "info")
+            content = extract_pdf(
+                pdf_path=str(temp_pdf_path),
+                method='pdfplumber'
+            )
+            yield send_progress_event(f"✓ Extracted {len(content.get('text', ''))} characters", 40, "success")
+            await asyncio.sleep(0.1)
+            
+            # Step 3: Summarize for architecture
+            yield send_progress_event("🤖 Analyzing architecture with AI...", 50, "info")
+            summary = summarize_with_bedrock(
+                text=content.get('text', ''),
+                aws_region=aws_region,
+                model_id=bedrock_model_id,
+                summary_type='architecture'
+            )
+            final_summary = summary.get('summary', '')
+            yield send_progress_event("✓ Architecture analysis complete", 60, "success")
+            await asyncio.sleep(0.1)
+            
+            # Step 4: Generate diagram code
+            yield send_progress_event("🎨 Generating diagram code with Bedrock...", 70, "info")
+            diagram_path = generate_diagram(
+                final_summary,
+                output_diagram_path,
+                aws_region=aws_region,
+                bedrock_model_id=bedrock_model_id
+            )
+            
+            if not diagram_path or not Path(diagram_path).exists():
+                yield send_progress_event(
+                    "⚠️ Diagram generation failed. Check logs for details.",
+                    0,
+                    "error"
+                )
+                yield send_progress_event(
+                    f"Architecture Summary: {final_summary[:200]}...",
+                    0,
+                    "info"
+                )
+                return
+            
+            yield send_progress_event("✓ Diagram code generated", 80, "success")
+            await asyncio.sleep(0.1)
+            
+            # Step 5: Validate diagram file
+            diagram_file = Path(diagram_path)
+            if not diagram_file.is_file():
+                yield send_progress_event("❌ Diagram file is invalid", 0, "error")
+                return
+            
+            file_size = diagram_file.stat().st_size
+            if file_size == 0:
+                yield send_progress_event("❌ Diagram file is empty", 0, "error")
+                return
+            
+            yield send_progress_event(f"✓ Diagram rendered ({file_size:,} bytes)", 90, "success")
+            await asyncio.sleep(0.1)
+            
+            # Step 6: Upload to S3
+            yield send_progress_event("☁️ Uploading to S3...", 95, "info")
+            s3_key = f"{S3_PREFIX}{timestamp}_{request_id}_diagram.png"
+            s3_url = upload_to_s3(diagram_file, s3_key)
+            
+            if s3_url:
+                yield send_progress_event("✓ Uploaded to S3 successfully", 100, "success")
+                await asyncio.sleep(0.1)
+                
+                # Read image data
+                with open(diagram_file, 'rb') as f:
+                    image_data = f.read()
+                
+                # Send final event with image data (base64 encoded)
+                import base64
+                image_base64 = base64.b64encode(image_data).decode('utf-8')
+                final_data = {
+                    "message": "✓ Diagram ready!",
+                    "status": "complete",
+                    "progress": 100,
+                    "request_id": request_id,
+                    "filename": diagram_file.name,
+                    "file_size": file_size,
+                    "s3_url": s3_url,
+                    "s3_key": s3_key,
+                    "image_data": image_base64,
+                    "timestamp": datetime.now().isoformat()
+                }
+                yield f"data: {json.dumps(final_data)}\n\n"
+            else:
+                yield send_progress_event("⚠️ S3 upload failed, using local storage", 100, "warning")
+                await asyncio.sleep(0.1)
+                
+                # Read image data
+                with open(diagram_file, 'rb') as f:
+                    image_data = f.read()
+                
+                import base64
+                image_base64 = base64.b64encode(image_data).decode('utf-8')
+                final_data = {
+                    "message": "✓ Diagram ready (local storage)",
+                    "status": "complete",
+                    "progress": 100,
+                    "request_id": request_id,
+                    "filename": diagram_file.name,
+                    "file_size": file_size,
+                    "image_data": image_base64,
+                    "timestamp": datetime.now().isoformat()
+                }
+                yield f"data: {json.dumps(final_data)}\n\n"
+            
+        except Exception as e:
+            error_msg = f"❌ Error: {str(e)}"
+            print(f"Error processing request: {str(e)}")
+            yield send_progress_event(error_msg, 0, "error")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # Clean up temporary PDF file
+            if temp_pdf_path.exists():
+                temp_pdf_path.unlink()
+    
+    return StreamingResponse(
+        generate_with_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.post("/api/generate-diagram")
@@ -1189,6 +1461,7 @@ async def generate_architecture_diagram(
 ):
     """
     Upload PDF, extract content, summarize, and generate architecture diagram
+    (Legacy endpoint - use /api/generate-diagram-stream for progress updates)
     """
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="File must be a PDF")
@@ -1198,7 +1471,6 @@ async def generate_architecture_diagram(
     temp_pdf_path = UPLOAD_DIR / f"{request_id}_{file.filename}"
     
     # Use generated-diagrams subdirectory with timestamp for better organization
-    from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
     generated_diagrams_dir.mkdir(exist_ok=True)
@@ -1227,13 +1499,17 @@ async def generate_architecture_diagram(
         
         summary_text = summary.get('summary', '')
         
-        # Step 3: Generate diagram
-        print(f"Generating architecture diagram...")
-        diagram_path = generate_diagram(summary_text, output_diagram_path)
+        # Step 3: Generate diagram using high-end Bedrock models
+        print(f"Generating architecture diagram with Bedrock...")
+        diagram_path = generate_diagram(
+            summary_text,
+            output_diagram_path,
+            aws_region=aws_region,
+            bedrock_model_id=bedrock_model_id
+        )
         
         if not diagram_path or not Path(diagram_path).exists():
             # If diagram generation failed, return summary as JSON
-            # This is expected if uvx/strands/mcp are not available
             print(f"Diagram generation failed or file not found: {diagram_path}")
             return JSONResponse(
                 status_code=200,
@@ -1242,7 +1518,7 @@ async def generate_architecture_diagram(
                     "message": "Diagram generation unavailable. Architecture summary generated successfully.",
                     "summary": summary_text,
                     "diagram_path": None,
-                    "note": "To enable diagram generation, install 'uv' (https://astral.sh/uv) and ensure strands/mcp packages are available."
+                    "note": "To enable diagram generation, ensure AWS credentials are configured and mermaid-cli is installed (npm install -g @mermaid-js/mermaid-cli)."
                 }
             )
         
@@ -1274,23 +1550,49 @@ async def generate_architecture_diagram(
                 }
             )
         
-        print(f"Returning diagram file: {diagram_path} (size: {file_size} bytes)")
+        # Upload to S3
+        s3_key = f"{S3_PREFIX}{timestamp}_{request_id}_diagram.png"
+        s3_url = upload_to_s3(diagram_file, s3_key)
         
-        # Return diagram file with cache-busting headers
-        return FileResponse(
-            diagram_path,
-            media_type="image/png",
-            headers={
-                "X-Summary-Length": str(len(summary_text)),
-                "X-Request-ID": request_id,
-                "X-File-Size": str(file_size),
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-                "X-Filename": diagram_file.name
-            },
-            filename=diagram_file.name
-        )
+        if s3_url:
+            print(f"✓ Diagram uploaded to S3: {s3_url}")
+            # Return S3 URL via JSON response with image data
+            # Read the file to return it immediately
+            with open(diagram_file, 'rb') as f:
+                image_data = f.read()
+            
+            return Response(
+                content=image_data,
+                media_type="image/png",
+                headers={
+                    "X-Summary-Length": str(len(summary_text)),
+                    "X-Request-ID": request_id,
+                    "X-File-Size": str(file_size),
+                    "X-S3-URL": s3_url,
+                    "X-S3-Key": s3_key,
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "X-Filename": diagram_file.name
+                }
+            )
+        else:
+            # Fallback: return local file if S3 upload failed
+            print(f"Warning: S3 upload failed, returning local file: {diagram_path}")
+            return FileResponse(
+                diagram_path,
+                media_type="image/png",
+                headers={
+                    "X-Summary-Length": str(len(summary_text)),
+                    "X-Request-ID": request_id,
+                    "X-File-Size": str(file_size),
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "X-Filename": diagram_file.name
+                },
+                filename=diagram_file.name
+            )
         
     except Exception as e:
         print(f"Error processing request: {str(e)}")
@@ -1304,44 +1606,22 @@ async def generate_architecture_diagram(
 
 @app.get("/api/diagrams")
 async def list_diagrams():
-    """List all generated diagrams with metadata"""
+    """List all generated diagrams with metadata from S3 (primary) and local (fallback)"""
     try:
+        # Primary: List from S3
+        s3_diagrams = list_s3_diagrams()
+        
+        # Fallback: Also check local directory
         generated_diagrams_dir = OUTPUT_DIR / "generated-diagrams"
         generated_diagrams_dir.mkdir(exist_ok=True)
         
-        # Clean up: Move any misplaced diagram files to outputs/generated-diagrams/
-        misplaced_locations = [
-            Path(__file__).parent,  # Backend directory
-            Path(__file__).parent.parent,  # Project root
-            generated_diagrams_dir / "generated-diagrams",  # Nested folder
-        ]
-        
-        for misplaced_dir in misplaced_locations:
-            if misplaced_dir.exists():
-                for file_path in misplaced_dir.glob("*.png"):
-                    if file_path.is_file() and "_diagram" in file_path.name:
-                        target_path = generated_diagrams_dir / file_path.name
-                        # Handle name conflicts
-                        if target_path.exists():
-                            # Skip if already exists (avoid overwriting)
-                            try:
-                                file_path.unlink()  # Delete duplicate
-                                print(f"Removed duplicate diagram: {file_path.name}")
-                            except Exception as e:
-                                print(f"Failed to remove duplicate {file_path}: {e}")
-                            continue
-                        
-                        try:
-                            shutil.move(str(file_path), str(target_path))
-                            print(f"Moved misplaced diagram from {misplaced_dir} to outputs/generated-diagrams/: {file_path.name}")
-                        except Exception as e:
-                            print(f"Failed to move file {file_path}: {e}")
-        
-        diagrams = []
+        local_diagrams = []
         for file_path in generated_diagrams_dir.glob("*.png"):
             if file_path.is_file():
                 stat_info = file_path.stat()
-                diagrams.append({
+                # Only add if not already in S3 list
+                if not any(d['filename'] == file_path.name for d in s3_diagrams):
+                    local_diagrams.append({
                     "filename": file_path.name,
                     "size": stat_info.st_size,
                     "created": stat_info.st_ctime,
@@ -1349,17 +1629,36 @@ async def list_diagrams():
                     "url": f"/api/diagram-file/{file_path.name}"
                 })
         
-        # Sort by creation time (newest first)
-        diagrams.sort(key=lambda x: x["created"], reverse=True)
+        # Combine S3 and local diagrams
+        all_diagrams = s3_diagrams + local_diagrams
         
-        return {"diagrams": diagrams, "count": len(diagrams)}
+        # Sort by creation time (newest first)
+        all_diagrams.sort(key=lambda x: x["created"], reverse=True)
+        
+        return {"diagrams": all_diagrams, "count": len(all_diagrams)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing diagrams: {str(e)}")
 
 
 @app.get("/api/diagram-file/{filename}")
 async def get_diagram_file(filename: str):
-    """Retrieve a specific diagram file by filename"""
+    """Retrieve a specific diagram file by filename from S3 (primary) or local (fallback)"""
+    # Try S3 first
+    s3_key = f"{S3_PREFIX}{filename}"
+    s3_data = download_from_s3(s3_key)
+    
+    if s3_data:
+        return Response(
+            content=s3_data,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+    
+    # Fallback to local file
     diagram_path = OUTPUT_DIR / "generated-diagrams" / filename
     
     if not diagram_path.exists() or not diagram_path.is_file():
@@ -1374,6 +1673,26 @@ async def get_diagram_file(filename: str):
             "Expires": "0"
         },
         filename=filename
+    )
+
+
+@app.get("/api/s3-diagram/{filename}")
+async def get_s3_diagram(filename: str):
+    """Retrieve a diagram directly from S3 by filename"""
+    s3_key = f"{S3_PREFIX}{filename}"
+    s3_data = download_from_s3(s3_key)
+    
+    if not s3_data:
+        raise HTTPException(status_code=404, detail="Diagram not found in S3")
+    
+    return Response(
+        content=s3_data,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
     )
 
 
